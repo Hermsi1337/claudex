@@ -1,0 +1,60 @@
+# 02 — parallel, file-disjoint (code + doc)
+
+## Goal
+
+Verify that a code subtask and a doc subtask on disjoint files run in parallel: Claude launches the Codex job in the background and writes the README itself in the meantime.
+
+## Setup
+
+```bash
+rm -rf tests/sandboxes/02-parallel
+mkdir -p tests/sandboxes/02-parallel
+```
+
+## Invocation
+
+```
+/claudex In tests/sandboxes/02-parallel/: (1) implement an in-memory key-value store in store.py — a class KVStore exposing put(key, value), get(key, default=None), delete(key), and clear(); (2) write a README.md in the same folder explaining how to use the class with a short usage example. Do not modify anything outside tests/sandboxes/02-parallel/.
+```
+
+## Expected behaviour
+
+- **Phase 1:** split into 2 subtasks.
+  - `store.py` → **Codex** (code)
+  - `README.md` → **Claude** itself (doc)
+  - Files are disjoint → eligible for parallel execution.
+- **Phase 3:** Claude launches the Codex job with `run_in_background: true` and **then** immediately uses `Write` / `Edit` on `README.md`. Both should be in flight at roughly the same time. After the Codex job finishes, Claude collects its exit code and stdout.
+- **Phase 4:** review covers `store.py` only (Claude does not review its own README).
+- **Phase 5:** 1 delegated to Codex, 1 done by Claude.
+
+## Verify
+
+```bash
+ls tests/sandboxes/02-parallel/
+test -f tests/sandboxes/02-parallel/store.py && echo "store.py: OK"
+test -f tests/sandboxes/02-parallel/README.md && echo "README.md: OK"
+
+# functional smoke
+python -c "
+import sys; sys.path.insert(0, 'tests/sandboxes/02-parallel')
+from store import KVStore
+s = KVStore()
+s.put('a', 1); assert s.get('a') == 1
+s.delete('a'); assert s.get('a') is None
+s.put('b', 2); s.clear(); assert s.get('b') is None
+print('store.py: behaves as expected')
+"
+
+# README should mention KVStore and at least one method by name
+grep -E 'KVStore|put|get|delete' tests/sandboxes/02-parallel/README.md > /dev/null && echo "README.md: references API"
+
+# nothing outside the sandbox
+git status --porcelain -- ':(exclude)tests/sandboxes/'
+# expected: empty
+```
+
+## Cleanup
+
+```bash
+rm -rf tests/sandboxes/02-parallel
+```

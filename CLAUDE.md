@@ -11,6 +11,8 @@ End-user documentation lives in [README.md](README.md). **This** file is for any
 - `plugins/claudex/commands/claudex.md` — `/claudex` orchestrator command
 - `plugins/claudex/commands/setup.md` — `/claudex:setup` install/auth checker
 - `plugins/claudex/README.md` — short plugin-level README
+- `tests/scenarios/*.md` — manual smoke-test specs for `/claudex`
+- `tests/sandboxes/` — gitignored work dirs used when running smoke tests
 - `README.md` — main user-facing docs
 - `LICENSE` — MIT
 
@@ -65,6 +67,15 @@ Doc drift is cheap to prevent in the same commit and expensive to clean up later
 - Parallelism is decided in natural language inside `claudex.md`, not enforced by code. Rule: file-disjoint Codex subtasks may run in parallel as `Bash` calls with `run_in_background: true`; anything sharing a file runs sequentially. When in doubt, sequential.
 - Default Codex model is whatever `codex` itself defaults to (so users automatically get its latest). `/claudex --model <name>` overrides for one call.
 - `/claudex:setup` deliberately does **not** run `codex login` — that's an interactive browser flow that doesn't work inside Claude Code.
+
+## Smoke tests (`tests/`)
+
+Manual end-to-end scenarios for `/claudex` live under `tests/scenarios/`. Each `.md` file is a self-contained recipe (Goal / Setup / Invocation / Expected / Verify / Cleanup). There's no runner — humans (or another agent) read a scenario and execute it against a real Codex CLI.
+
+- `tests/sandboxes/<scenario>/` is the per-test work dir. Its contents are gitignored (the dir is tracked only by its `.gitignore`), so test runs don't dirty the working tree.
+- **Codex sees the entire repo as its workspace** when `/claudex` runs from inside this repo. The scenarios always include "do not modify anything outside `tests/sandboxes/<scenario>/`" in the prompt, but that's a soft constraint. Always verify with `git status --porcelain -- ':(exclude)tests/sandboxes/'` after each run; reset with `git checkout --` anything that escaped.
+- When you change `plugins/claudex/commands/claudex.md` in a way that affects decomposition, parallelism, or review behaviour, run scenarios 01–03 at minimum. They are quick.
+- When you add a new behaviour (a new flag, a new phase), add a matching `tests/scenarios/NN-*.md` in the same commit. Same-commit doc rule applies.
 
 ## Out of scope for now
 
