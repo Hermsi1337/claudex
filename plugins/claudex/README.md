@@ -10,6 +10,8 @@ For full docs, see the [repository README](https://github.com/Hermsi1337/claudex
   - `--model <name>` — override Codex' model for this call. Without it, Codex' own default is used.
 - `/claudex:setup` — verify the local `codex` CLI is installed and authenticated.
 
+After the first `/claudex` in a conversation, task-shaped follow-ups are routed through the same workflow automatically (sticky mode). Questions about the diff or codebase still get answered directly without delegating.
+
 ## Requirements
 
 - OpenAI Codex CLI: `npm install -g @openai/codex`, then `codex login`.

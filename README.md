@@ -15,10 +15,11 @@ Inspired by [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc
 ## Requirements
 
 - [Claude Code](https://claude.com/claude-code) (CLI, IDE extension, or desktop)
-- [OpenAI Codex CLI](https://github.com/openai/codex) installed and authenticated locally
+- [OpenAI Codex CLI](https://github.com/openai/codex) **≥ 0.128** installed and authenticated locally
   - `npm install -g @openai/codex`
   - `codex login`
-- macOS or Linux (Windows via WSL)
+  - The plugin uses `codex exec --sandbox workspace-write [--cd <dir>] [--model <name>]`. Older Codex versions had a `--full-auto` preset that this plugin no longer relies on.
+- macOS or Linux (Windows via WSL or directly with Git Bash + a working `codex`)
 
 The plugin shells out to `codex exec` and uses your existing Codex auth — no separate API key configuration.
 
@@ -67,6 +68,20 @@ Then Claude reviews everything Codex produced and reports back.
 ```
 
 Without `--model`, Codex' own default is used (so you always get its latest model).
+
+### Sticky follow-ups
+
+After your first `/claudex` in a conversation, follow-up task-shaped requests in the same chat are routed through the same orchestrator automatically — no need to retype `/claudex`:
+
+```
+/claudex add a healthcheck endpoint at /api/health
+… (Claude delegates, reviews, reports)
+
+now also add a /api/version endpoint that returns the package version
+… (Claude does the same workflow without you typing /claudex again)
+```
+
+Questions about the diff or the codebase don't trigger a Codex run; only sentence-shaped task requests do. To turn it off explicitly: "just answer me directly" or "no more delegating".
 
 ## What gets delegated to Codex
 

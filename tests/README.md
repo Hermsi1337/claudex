@@ -19,7 +19,7 @@ tests/
 
 ## Safety: Codex sees the whole repo as workspace
 
-When you run `/claudex` from inside this repo, `codex exec --full-auto` uses the **entire repo** as its `workspace-write` sandbox. The scenario prompts always tell Codex to stay inside `tests/sandboxes/<scenario>/`, but a misbehaving Codex run **could** edit files outside that path.
+When you run `/claudex` from inside this repo, `codex exec --sandbox workspace-write` uses the workspace dir as its writable sandbox. The orchestrator should pass `--cd tests/sandboxes/<scenario>` for these tests, which scopes the sandbox to that subdir; the scenario prompts also tell Codex in plain language to stay inside it. Both belt and braces. If the orchestrator forgets to pass `--cd`, Codex sees the **entire repo** as workspace and could edit files outside the sandbox.
 
 Two cheap guardrails for every test run:
 

@@ -55,10 +55,14 @@ Do not pass huge files wholesale to Codex. Pass file paths and relevant excerpts
 For each Codex subtask, invoke:
 
 ```bash
-codex exec --full-auto [--model <name>] "<self-contained prompt>"
+codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] "<self-contained prompt>"
 ```
 
-`--full-auto` lets Codex write inside the workspace without per-edit approval prompts (preset: `workspace-write` sandbox + `on-failure` approval). Add `--model <name>` only if the user passed `--model`.
+Flag rationale (Codex CLI ≥ 0.128):
+
+- `--sandbox workspace-write` — let Codex write inside its workspace. `codex exec` is non-interactive and has no approval prompts (unlike interactive `codex`), so no `--ask-for-approval` flag applies. The legacy `--full-auto` preset is **not** available on `codex exec` in current versions — do not use it.
+- `--model <name>` — only when the user passed `--model` to `/claudex`. Otherwise omit so Codex' own (newest) default is used.
+- `--cd <dir>` — pass this when the user's task pins the work to a specific subdirectory (e.g. "inside `tests/sandboxes/01-trivial/`"). It restricts Codex' workspace to that dir, so `workspace-write` cannot reach files outside it. Without `--cd`, Codex' workspace is whatever directory `/claudex` was invoked from. Create the target dir first if it doesn't exist.
 
 The Codex prompt must include:
 
@@ -120,6 +124,25 @@ Output a single structured message:
 
 Be terse. The user reads the diff themselves; your review notes should call out things the diff alone doesn't reveal.
 
+## Subsequent requests in this conversation (sticky mode)
+
+After this run finishes, **stay in claudex mode for the rest of the conversation**. Treat any task-shaped follow-up the user gives — without them re-typing `/claudex` — as if it had been prefixed with `/claudex`. That means: re-run Phase 1–5 (decompose → context → execute → review → report) with the same flag rules.
+
+What counts as a task-shaped follow-up:
+
+- "now also add X", "fix the bug in Y", "refactor Z", "and write tests for it"
+- a fresh implementation request stated as a sentence
+
+What does **not** trigger sticky mode:
+
+- questions about the codebase or the previous diff — answer directly, no Codex.
+- planning, design Q&A, naming discussions — answer directly.
+- explicit out-of-mode requests ("just explain", "no more delegating", "do this one yourself") — answer directly for that turn; if the user makes a follow-up that is clearly a fresh task, sticky mode resumes.
+
+The user can pass `--model <name>` on a sticky follow-up the same way they would on an explicit `/claudex` call. The override is per-call, not session-wide.
+
+If you're unsure whether a request is task-shaped or conversational, ask one clarifying question before delegating — never silently kick off a Codex job for an ambiguous prompt.
+
 ## Failure modes to watch for
 
 - Codex modifies files outside its assigned scope → flag in review.
@@ -128,3 +151,4 @@ Be terse. The user reads the diff themselves; your review notes should call out 
 - Codex' output mentions errors but exit code is 0 → check the actual diff anyway.
 - Two parallel Codex jobs both edited the same file → recommend revert and retry sequentially.
 - `codex` command not found or auth missing → tell the user to run `/claudex:setup` and stop.
+- Codex rejects the invocation flag (e.g. `--sandbox` not recognised) → likely a Codex version mismatch (we target ≥ 0.128). Surface the exact `codex --version` and the failing command in the report.

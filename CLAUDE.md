@@ -53,7 +53,7 @@ Before running `git commit`, do this — every time, no shortcuts:
 Quick way to surface drift candidates:
 
 ```bash
-git diff --staged --name-only | xargs -I{} grep -l -E '(claudex|codex|--model|--full-auto|setup|/plugin)' {} 2>/dev/null
+git diff --staged --name-only | xargs -I{} grep -l -E '(claudex|codex|--model|--sandbox|--cd|setup|/plugin|sticky)' {} 2>/dev/null
 ```
 
 Triggers that almost always require a doc update: changing a flag, changing a phase description, changing an install step, changing a known-limitations bullet, renaming a command file.
@@ -62,7 +62,10 @@ Doc drift is cheap to prevent in the same commit and expensive to clean up later
 
 ## Plugin design notes worth keeping in mind
 
-- The plugin shells out to `codex exec --full-auto` directly. **No Node companion script** — intentionally simpler than `openai/codex-plugin-cc` (which uses `codex app-server` + a `codex-companion.mjs` wrapper). Don't add one without the user asking.
+- The plugin shells out to `codex exec --sandbox workspace-write` directly (Codex CLI ≥ 0.128). **No Node companion script** — intentionally simpler than `openai/codex-plugin-cc` (which uses `codex app-server` + a `codex-companion.mjs` wrapper). Don't add one without the user asking.
+- The legacy `--full-auto` preset and `--ask-for-approval on-failure` are gone in current Codex versions; do not reintroduce them. `codex exec` is non-interactive and has no approval-prompt flag at all.
+- When the user pins the work to a subdirectory, the orchestrator passes `--cd <dir>` to Codex so `workspace-write` can't reach files outside it. This is what makes `tests/sandboxes/<scenario>/` actually safe.
+- Sticky mode: `claudex.md` instructs Claude to keep applying the same orchestration to task-shaped follow-ups in the same conversation, even without the user re-typing `/claudex`. Questions and design Q&A do not trigger it; an explicit "no more delegating" turns it off for that turn.
 - Codex starts each invocation cold. Anything it needs goes into the prompt — context, file scope, conventions, acceptance criteria.
 - Parallelism is decided in natural language inside `claudex.md`, not enforced by code. Rule: file-disjoint Codex subtasks may run in parallel as `Bash` calls with `run_in_background: true`; anything sharing a file runs sequentially. When in doubt, sequential.
 - Default Codex model is whatever `codex` itself defaults to (so users automatically get its latest). `/claudex --model <name>` overrides for one call.

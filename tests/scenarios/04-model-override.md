@@ -24,9 +24,9 @@ Substitute `<your-codex-model>` with a model name your local Codex CLI accepts (
 - **Argument parsing:** Claude removes `--model <your-codex-model>` from the natural-language task before composing the Codex prompt. The Codex prompt should not contain the literal string `--model`.
 - **Phase 3:** the Bash invocation should look (modulo prompt content) like:
   ```bash
-  codex exec --full-auto --model <your-codex-model> "..."
+  codex exec --sandbox workspace-write --model <your-codex-model> --cd tests/sandboxes/04-model "..."
   ```
-  Inspect the actual Bash command in the transcript — the `--model <your-codex-model>` segment must be there.
+  Inspect the actual Bash command in the transcript — the `--model <your-codex-model>` segment must be there. (Order of flags may vary; what matters is that all three are present.)
 - **Result:** `hello.py` is created with a `say_hi()` returning `"hi"`. Whether the model behaved better/worse is not what we're testing — only that the override travelled through.
 
 ## Verify
