@@ -1,0 +1,71 @@
+# claudex — Agent context
+
+This is the **claudex** Claude Code plugin. It turns Claude into an orchestrator that delegates implementation work to OpenAI Codex (via the local `codex` CLI), handles documentation/conceptual work itself, and reviews Codex' diff at the end.
+
+End-user documentation lives in [README.md](README.md). **This** file is for any AI agent working **on** this repo (Claude Code, Codex, Cursor, etc.). `AGENTS.md` is a symlink to this file so every agent reads the same rules.
+
+## Repository layout
+
+- `.claude-plugin/marketplace.json` — marketplace manifest
+- `plugins/claudex/.claude-plugin/plugin.json` — plugin manifest
+- `plugins/claudex/commands/claudex.md` — `/claudex` orchestrator command
+- `plugins/claudex/commands/setup.md` — `/claudex:setup` install/auth checker
+- `plugins/claudex/README.md` — short plugin-level README
+- `README.md` — main user-facing docs
+- `LICENSE` — MIT
+
+The `commands/*.md` files are **instructions for Claude**, not scripts. They use `$ARGUMENTS` for user-input substitution and `${CLAUDE_PLUGIN_ROOT}` for plugin-relative paths. Frontmatter follows the official Claude Code plugin spec: `description`, `argument-hint`, `allowed-tools`.
+
+## Required behaviours (always)
+
+### 1. Repo language is English
+
+Every committed artefact in this repo is in English. No exceptions. That includes:
+
+- code, identifiers, inline comments
+- docs (`README.md`, `CLAUDE.md`, plugin `README.md`, command `.md` files)
+- commit messages, PR titles, PR bodies
+- issue/PR replies that get committed (templates etc.)
+- error messages, log strings, user-facing text
+
+If the human is chatting in another language, reply to them in their language — but **anything you write into a file or send through `git`/`gh` stays English**.
+
+### 2. Doc & PR-body sync check before every commit
+
+Before running `git commit`, do this — every time, no shortcuts:
+
+1. Look at what you're about to commit: `git diff --staged` (or `git diff HEAD` if nothing is staged yet).
+2. Decide whether the change touches anything **user-visible**: install steps, command names, flags, frontmatter, workflow phases, requirements, known limitations, defaults.
+3. If yes, verify these are still accurate and update them in the **same commit**:
+   - `README.md` (top-level)
+   - `plugins/claudex/README.md`
+   - `plugins/claudex/commands/claudex.md` — especially the frontmatter (`argument-hint`, `allowed-tools`), the `--model` handling, and the phase descriptions
+   - `plugins/claudex/commands/setup.md` — install/auth steps
+   - `CLAUDE.md` (this file — repo-layout section in particular)
+4. If a PR exists for the current branch, check the PR body too:
+   ```bash
+   gh pr view --json body -q .body
+   ```
+   If the body now misrepresents the change set, update it with `gh pr edit --body-file <file>` before finishing.
+
+Quick way to surface drift candidates:
+
+```bash
+git diff --staged --name-only | xargs -I{} grep -l -E '(claudex|codex|--model|--full-auto|setup|/plugin)' {} 2>/dev/null
+```
+
+Triggers that almost always require a doc update: changing a flag, changing a phase description, changing an install step, changing a known-limitations bullet, renaming a command file.
+
+Doc drift is cheap to prevent in the same commit and expensive to clean up later. Don't defer it.
+
+## Plugin design notes worth keeping in mind
+
+- The plugin shells out to `codex exec --full-auto` directly. **No Node companion script** — intentionally simpler than `openai/codex-plugin-cc` (which uses `codex app-server` + a `codex-companion.mjs` wrapper). Don't add one without the user asking.
+- Codex starts each invocation cold. Anything it needs goes into the prompt — context, file scope, conventions, acceptance criteria.
+- Parallelism is decided in natural language inside `claudex.md`, not enforced by code. Rule: file-disjoint Codex subtasks may run in parallel as `Bash` calls with `run_in_background: true`; anything sharing a file runs sequentially. When in doubt, sequential.
+- Default Codex model is whatever `codex` itself defaults to (so users automatically get its latest). `/claudex --model <name>` overrides for one call.
+- `/claudex:setup` deliberately does **not** run `codex login` — that's an interactive browser flow that doesn't work inside Claude Code.
+
+## Out of scope for now
+
+Tracked in [README.md](README.md) under "Not in this version". Don't expand scope without the user explicitly asking — particularly: no iteration loop, no session resume, no background-mode commands, no `--effort` flag.
