@@ -8,9 +8,12 @@ For full docs, see the [repository README](https://github.com/Hermsi1337/claudex
 
 - `/claudex <task>` — decompose, delegate code work to Codex, do docs in Claude, then review.
   - `--model <name>` — override Codex' model for this call. Without it, Codex' own default is used.
+  - `--effort <low|medium|high|xhigh>` — force a Codex reasoning level for this call (bypasses auto-classification).
 - `/claudex:setup` — verify the local `codex` CLI is installed and authenticated.
 
 After the first `/claudex` in a conversation, task-shaped follow-ups are routed through the same workflow automatically (sticky mode). Questions about the diff or codebase still get answered directly without delegating.
+
+Without `--effort`, complex subtasks are auto-escalated to `-c model_reasoning_effort=high` (skipped if your `~/.codex/config.toml` default is already `high` or `xhigh`); standard subtasks run at your configured default. Claude never auto-lowers reasoning and never auto-escalates to `xhigh` — `low` and `xhigh` only ever happen when you ask for them via `--effort`.
 
 ## Requirements
 
