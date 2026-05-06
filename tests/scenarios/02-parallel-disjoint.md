@@ -23,7 +23,7 @@ mkdir -p tests/sandboxes/02-parallel
   - `store.py` → **Codex** (code)
   - `README.md` → **Claude** itself (doc)
   - Files are disjoint → eligible for parallel execution.
-- **Phase 3:** Claude launches the Codex job with `run_in_background: true` and **then** immediately uses `Write` / `Edit` on `README.md`. Both should be in flight at roughly the same time. After the Codex job finishes, Claude collects its exit code and stdout.
+- **Phase 3:** Claude first writes the Codex prompt to a `/tmp/claudex-prompts/<slug>-<id>.md` file via the Write tool, then launches `codex exec [flags] - < <that-file>` with `run_in_background: true`, and **then** immediately uses `Write` / `Edit` on `README.md`. The Codex Bash call and the README work should be in flight at roughly the same time. After the Codex job finishes, Claude collects its exit code and stdout.
 - **Phase 4:** review covers `store.py` only (Claude does not review its own README).
 - **Phase 5:** 1 delegated to Codex, 1 done by Claude.
 

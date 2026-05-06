@@ -35,7 +35,7 @@ now also add a shout(name) function in the same file that returns the greeting i
 
 - Claude recognises the message as **task-shaped** and silently re-enters the claudex workflow:
   - Phase 1 picks up the prior file scope (`greet.py` in the same sandbox).
-  - Phase 3 runs a fresh `codex exec --sandbox workspace-write --cd tests/sandboxes/05-sticky "..."` call.
+  - Phase 3 writes a new prompt file under `/tmp/claudex-prompts/` and runs a fresh `codex exec --sandbox workspace-write --cd tests/sandboxes/05-sticky - < /tmp/claudex-prompts/<slug>-<id>.md` call.
   - Phase 4 reviews the new diff.
   - Phase 5 reports.
 - Claude does **not** ask the user "do you want me to use /claudex?". The whole point is that sticky mode is automatic.

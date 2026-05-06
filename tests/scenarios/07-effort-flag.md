@@ -22,9 +22,9 @@ The task is genuinely complex (would normally auto-escalate to `high`). With `--
 ### Expected behaviour
 
 - **Argument parsing:** Claude removes `--effort low` from the natural-language task. The Codex prompt should not contain the literal string `--effort`.
-- **Phase 3:** every `codex exec` call carries `-c model_reasoning_effort=low`. Roughly:
+- **Phase 3:** every `codex exec` call carries `-c model_reasoning_effort=low`, with the prompt fed via the stdin file. Roughly:
   ```bash
-  codex exec --sandbox workspace-write -c model_reasoning_effort=low --cd tests/sandboxes/07-effort "..."
+  codex exec --sandbox workspace-write -c model_reasoning_effort=low --cd tests/sandboxes/07-effort - < /tmp/claudex-prompts/<slug>-<id>.md
   ```
 - The auto-classification that would have escalated this task to `high` is overridden — the `low` from `--effort` wins.
 
@@ -41,9 +41,9 @@ now with --effort xhigh, in tests/sandboxes/07-effort/, rename cache.py's TTLCac
 ### Expected behaviour
 
 - **Argument parsing:** `--effort xhigh` is stripped from the task description.
-- **Phase 3:** Bash call carries `-c model_reasoning_effort=xhigh`:
+- **Phase 3:** Bash call carries `-c model_reasoning_effort=xhigh`, again with the prompt via the stdin file:
   ```bash
-  codex exec --sandbox workspace-write -c model_reasoning_effort=xhigh --cd tests/sandboxes/07-effort "..."
+  codex exec --sandbox workspace-write -c model_reasoning_effort=xhigh --cd tests/sandboxes/07-effort - < /tmp/claudex-prompts/<slug>-<id>.md
   ```
 - The fact that the rename is a `standard` subtask is irrelevant — the user override wins.
 

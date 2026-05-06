@@ -65,11 +65,21 @@ Do not pass huge files wholesale to Codex. Pass file paths and relevant excerpts
 
 ## Phase 3 — Execute
 
-For each Codex subtask, invoke:
+For each Codex subtask, **never pass the prompt as a positional argument**. Shell escaping has bitten us — backticks, `$`, embedded quotes, and heredoc-delimiter collisions in the prompt content silently corrupt the call. Instead, the prompt always travels via stdin from a file you wrote with the **Write tool**.
 
-```bash
-codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=<level>] "<self-contained prompt>"
-```
+Per Codex subtask:
+
+1. Pick a stable, unique path under `/tmp/claudex-prompts/`, e.g.
+   `/tmp/claudex-prompts/<short-task-slug>-<8-char-id>.md`.
+   Slug from the subtask description (lowercased, hyphenated, ASCII), id from a small random suffix or session-local counter — anything that won't collide with parallel subtasks in the same call. Don't reuse a path between subtasks.
+2. Use the **Write tool** to write the full prompt content to that path. The Write tool bypasses the shell entirely, so the prompt body can contain anything Codex needs (backticks, code fences, `$VAR`, nested quotes, the literal word `EOF`, etc.) — none of it is parsed by bash. Create `/tmp/claudex-prompts/` via Bash (`mkdir -p`) once before the first Write if it doesn't exist.
+3. Invoke Codex with stdin redirection from that file:
+   ```bash
+   codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=<level>] - < /tmp/claudex-prompts/<short-task-slug>-<id>.md
+   ```
+   The trailing `-` is Codex' explicit "prompt comes from stdin" placeholder; the `<` redirect feeds it from the file. This is the **only** form to use — no inline-quoted prompts, no `<<EOF` heredocs, no `echo … | codex`.
+
+Do not delete the prompt file after the call. Leaving it under `/tmp` is what makes a botched run debuggable — `/tmp` is wiped on reboot anyway.
 
 Flag rationale (Codex CLI ≥ 0.128):
 
@@ -84,7 +94,7 @@ Flag rationale (Codex CLI ≥ 0.128):
 
   **Never set `low` automatically, and never auto-escalate to `xhigh`.** Lowering reasoning or jumping straight to `xhigh` is only legal when the user explicitly asks for it via `--effort`.
 
-The Codex prompt must include:
+The Codex prompt content must include:
 
 1. **Task scope** — exactly what to do.
 2. **Files in scope** — explicit list of files Codex may modify. Tell Codex not to touch anything else.
@@ -172,3 +182,4 @@ If you're unsure whether a request is task-shaped or conversational, ask one cla
 - Two parallel Codex jobs both edited the same file → recommend revert and retry sequentially.
 - `codex` command not found or auth missing → tell the user to run `/claudex:setup` and stop.
 - Codex rejects the invocation flag (e.g. `--sandbox` not recognised) → likely a Codex version mismatch (we target ≥ 0.128). Surface the exact `codex --version` and the failing command in the report.
+- Tempted to inline the prompt as a positional argument because it's "just a short string" → don't. Always go through the prompt file + stdin path described in Phase 3, even for one-line prompts. The escaping risk is non-zero for any user-influenced content, and a uniform path keeps debugging simple (every Codex call has a corresponding `/tmp/claudex-prompts/*.md` to inspect).
