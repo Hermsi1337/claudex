@@ -1,6 +1,6 @@
 ---
 description: Decompose a task, delegate code work to Codex, handle docs yourself, then review what Codex produced.
-argument-hint: "[--model <name>] <task description>"
+argument-hint: "[--model <name>] [--effort low|medium|high|xhigh] <task description>"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, TodoWrite
 ---
 
@@ -19,6 +19,7 @@ $ARGUMENTS
 Strip these flags from `$ARGUMENTS` before processing the task description:
 
 - `--model <name>` — override the Codex model for this invocation. If absent, do **not** pass `--model` to Codex (its built-in default is desired so it always picks the latest version).
+- `--effort <low|medium|high|xhigh>` — force a specific Codex reasoning level for **every** subtask in this call. Wins over the auto-classification described in Phase 1/3. If absent, the orchestrator decides per subtask. Reject any value other than `low`, `medium`, `high`, `xhigh` and ask the user to fix it before continuing. Effort ordering, lowest to highest: `low < medium < high < xhigh` — Codex' guide recommends `medium` for everyday interactive coding and `high`/`xhigh` for hardest, long-running autonomous tasks.
 
 The remainder is the natural-language task description. If it is empty, ask the user what to do and stop.
 
@@ -54,6 +55,11 @@ Before delegating anything, collect what Codex needs to know:
   - `CLAUDE.md`, `AGENTS.md`, `.codex/config.toml` if present (top-level **and** any nested ones near the affected paths)
   - Note any inline-comment policy. **Default if nothing is specified: write self-explanatory code with no inline comments.** State this default explicitly in the prompt you pass to Codex.
   - Note test framework, lint/format tooling, naming conventions visible in the affected files.
+- If — and only if — at least one Codex subtask is tagged `complex` **and** the user did not pass `--effort`, peek at the user's active Codex reasoning default once:
+  ```bash
+  grep -E '^[[:space:]]*model_reasoning_effort[[:space:]]*=' "${CODEX_HOME:-$HOME/.codex}/config.toml" 2>/dev/null | head -1
+  ```
+  Parse the quoted value. Effort ordering is `low < medium < high < xhigh`. If the value is `high` or `xhigh`, remember "default ≥ high" — Phase 3 will then skip the override for `complex` subtasks (it would be a no-op or, for `xhigh`, would actually lower reasoning). For any other value, missing config, or read failure, treat the default as "below high" and let Phase 3 escalate normally. Do not run this peek if all subtasks are `standard`, and do not run it when `--effort` is set (the user override wins anyway).
 
 Do not pass huge files wholesale to Codex. Pass file paths and relevant excerpts.
 
@@ -62,7 +68,7 @@ Do not pass huge files wholesale to Codex. Pass file paths and relevant excerpts
 For each Codex subtask, invoke:
 
 ```bash
-codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=high] "<self-contained prompt>"
+codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=<level>] "<self-contained prompt>"
 ```
 
 Flag rationale (Codex CLI ≥ 0.128):
@@ -70,7 +76,13 @@ Flag rationale (Codex CLI ≥ 0.128):
 - `--sandbox workspace-write` — let Codex write inside its workspace. `codex exec` is non-interactive and has no approval prompts (unlike interactive `codex`), so no `--ask-for-approval` flag applies. The legacy `--full-auto` preset is **not** available on `codex exec` in current versions — do not use it.
 - `--model <name>` — only when the user passed `--model` to `/claudex`. Otherwise omit so Codex' own (newest) default is used.
 - `--cd <dir>` — pass this when the user's task pins the work to a specific subdirectory (e.g. "inside `tests/sandboxes/01-trivial/`"). It restricts Codex' workspace to that dir, so `workspace-write` cannot reach files outside it. Without `--cd`, Codex' workspace is whatever directory `/claudex` was invoked from. Create the target dir first if it doesn't exist.
-- `-c model_reasoning_effort=high` — pass **only** for subtasks tagged `complex` in Phase 1. For `standard` subtasks, omit this flag entirely so the user's `~/.codex/config.toml` (or Codex' built-in fallback) decides — this is intentional, the orchestrator should not need to know what the default is. **Never set `low` automatically**: a misjudged easy task quietly produces worse code, whereas the cost of running a standard task at the user's configured default is zero.
+- `-c model_reasoning_effort=<level>` — decided in this priority order:
+  1. **User passed `--effort <level>`** → pass exactly that level for every Codex subtask in this call. The user override wins over auto-classification, including the `low` direction and `xhigh`.
+  2. **Subtask is `complex` and Phase 2 peek showed default *below* `high`** (i.e. `low`, `medium`, missing, or unreadable) → pass `-c model_reasoning_effort=high`.
+  3. **Subtask is `complex` and Phase 2 peek showed default already `high` or `xhigh`** → omit the flag. Adding `high` would either be a no-op or, against `xhigh`, would actually lower reasoning.
+  4. **Subtask is `standard`** → omit the flag. The user's `~/.codex/config.toml` (or Codex' built-in fallback) decides.
+
+  **Never set `low` automatically, and never auto-escalate to `xhigh`.** Lowering reasoning or jumping straight to `xhigh` is only legal when the user explicitly asks for it via `--effort`.
 
 The Codex prompt must include:
 
@@ -147,7 +159,7 @@ What does **not** trigger sticky mode:
 - planning, design Q&A, naming discussions — answer directly.
 - explicit out-of-mode requests ("just explain", "no more delegating", "do this one yourself") — answer directly for that turn; if the user makes a follow-up that is clearly a fresh task, sticky mode resumes.
 
-The user can pass `--model <name>` on a sticky follow-up the same way they would on an explicit `/claudex` call. The override is per-call, not session-wide.
+The user can pass `--model <name>` or `--effort <level>` on a sticky follow-up the same way they would on an explicit `/claudex` call. Both overrides are per-call, not session-wide.
 
 If you're unsure whether a request is task-shaped or conversational, ask one clarifying question before delegating — never silently kick off a Codex job for an ambiguous prompt.
 

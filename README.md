@@ -69,6 +69,16 @@ Then Claude reviews everything Codex produced and reports back.
 
 Without `--model`, Codex' own default is used (so you always get its latest model).
 
+### Override the reasoning effort
+
+```
+/claudex --effort high refactor the rate limiter to use a token-bucket algorithm
+/claudex --effort xhigh design and implement a distributed leader election protocol
+/claudex --effort low rename FooManager to FooRegistry across the repo
+```
+
+`--effort <low|medium|high|xhigh>` forces that level for **every** Codex subtask in this call and bypasses the auto-classification described below. Effort ordering, lowest to highest: `low < medium < high < xhigh`. Codex' own guidance: `medium` is the everyday interactive default; `high` / `xhigh` are for the hardest, long-running autonomous work. Without `--effort`, Claude decides per subtask: complex ones get escalated to `high`, standard ones run at whatever your `~/.codex/config.toml` says.
+
 ### Sticky follow-ups
 
 After your first `/claudex` in a conversation, follow-up task-shaped requests in the same chat are routed through the same orchestrator automatically — no need to retype `/claudex`:
@@ -101,7 +111,16 @@ Codex follows whatever it finds in your `CLAUDE.md` / `AGENTS.md` / `.codex/conf
 
 ## Reasoning effort
 
-Codex' reasoning level is whatever your `~/.codex/config.toml` says (Codex' own fallback is `medium`). For Codex subtasks Claude classifies as genuinely complex — algorithm design, ambiguous-spec refactors, multi-file design changes — Claude escalates that single invocation to `high` by passing `-c model_reasoning_effort=high`. It never lowers reasoning automatically: misjudging an easy task is a silent quality hit, so the floor stays at your configured default.
+By default, Codex runs at whatever level your `~/.codex/config.toml` configures (Codex' own fallback is `medium`). Codex supports `low`, `medium`, `high`, and `xhigh`, in that order.
+
+When you don't pass `--effort`, Claude classifies each Codex subtask and adapts:
+
+- **Complex subtasks** — algorithm design, ambiguous-spec refactors, multi-file design changes — get escalated to `high` for that one invocation.
+- If your config default is **already `high` or `xhigh`**, Claude omits the override. Adding `high` against an `xhigh` default would actually lower reasoning, which is never what auto-escalation should do.
+- **Standard subtasks** run at your configured default; no override is passed.
+- Claude **never auto-lowers reasoning** and **never auto-escalates to `xhigh`**. Misjudging an easy task is a silent quality hit, so the floor stays at your configured default; jumping straight to `xhigh` is reserved for explicit user intent.
+
+When you do pass `--effort <low|medium|high|xhigh>`, that level is forced for every Codex subtask in the call — including `low` and `xhigh`, which are only ever set when you explicitly ask for them.
 
 ## Parallelism rules
 
@@ -115,6 +134,7 @@ If Claude misjudges disjointness and two parallel jobs touch the same file, the 
 
 - `/claudex <task>` — orchestrate + delegate + review.
   - `--model <name>` — override Codex' default model for this call.
+  - `--effort <low|medium|high|xhigh>` — force a Codex reasoning level for this call (bypasses auto-classification).
 - `/claudex:setup` — verify Codex CLI is installed and authenticated.
 
 ## Not in this version
@@ -123,7 +143,6 @@ These are tracked as future work:
 
 - [ ] Iteration loop (Claude reviews → re-delegates fixes to Codex automatically)
 - [ ] Resume of Codex sessions
-- [ ] User-facing reasoning-effort flag (e.g. `--effort high`) — auto-escalation already covers complex subtasks; this would let the user force a level explicitly
 - [ ] Background mode with `/claudex:status` and `/claudex:result`
 
 ## License
