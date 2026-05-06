@@ -21,7 +21,7 @@ mkdir -p tests/sandboxes/01-trivial
 
 - **Phase 1 (decompose):** no split — orchestrator recognises this as trivial.
 - **Phase 2 (context):** runs `git status` / brief glob; no need to read existing files because the sandbox is empty.
-- **Phase 3 (execute):** exactly one Bash call of the form `codex exec --sandbox workspace-write --cd tests/sandboxes/01-trivial "..."`. No `--model` flag (we didn't pass one). No `run_in_background: true` (nothing to parallelise with).
+- **Phase 3 (execute):** the orchestrator first writes the Codex prompt to a file under `/tmp/claudex-prompts/` (via the Write tool, **not** via bash heredoc), then issues exactly one Bash call of the form `codex exec --sandbox workspace-write --cd tests/sandboxes/01-trivial - < /tmp/claudex-prompts/<slug>-<id>.md`. No `--model` flag (we didn't pass one). No `run_in_background: true` (nothing to parallelise with). The prompt **must not** appear as a positional `codex exec` argument or inside a heredoc.
 - **Phase 4 (review):** reads `hello.py`. No comments expected (default policy). Confirms the `__main__` block is present and calls `greet`.
 - **Phase 5 (report):** 1 delegated to Codex, 0 done by Claude. Recommendation should be `commit` (or whatever phrasing — point is, no issues).
 

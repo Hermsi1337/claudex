@@ -13,7 +13,11 @@ tests/
 │   ├── 01-trivial-single-file.md
 │   ├── 02-parallel-disjoint.md
 │   ├── 03-sequential-overlap.md
-│   └── 04-model-override.md
+│   ├── 04-model-override.md
+│   ├── 05-sticky-followup.md
+│   ├── 06-reasoning-escalation.md
+│   ├── 07-effort-flag.md
+│   └── 08-prompt-via-stdin.md
 └── sandboxes/          # gitignored work dirs (only .gitignore is committed)
 ```
 
@@ -58,6 +62,8 @@ In Phase 4 (review), watch what the orchestrator notices:
 - Does it flag genuine issues (out-of-scope edits, half-finished impl, unwanted comments)?
 
 If the orchestrator silently skips a phase, that's a bug in `plugins/claudex/commands/claudex.md`, not a Codex problem.
+
+In Phase 3, every Codex call should look like `codex exec [flags] - < /tmp/claudex-prompts/<slug>-<id>.md`. If you ever see the prompt inlined as a positional argument or wrapped in a heredoc, that's a regression — the orchestrator must always go through the prompt-file path.
 
 ## Adding a new scenario
 

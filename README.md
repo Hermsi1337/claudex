@@ -18,7 +18,7 @@ Inspired by [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc
 - [OpenAI Codex CLI](https://github.com/openai/codex) **≥ 0.128** installed and authenticated locally
   - `npm install -g @openai/codex`
   - `codex login`
-  - The plugin uses `codex exec --sandbox workspace-write [--cd <dir>] [--model <name>]`. Older Codex versions had a `--full-auto` preset that this plugin no longer relies on.
+  - The plugin uses `codex exec --sandbox workspace-write [--cd <dir>] [--model <name>] - < /tmp/claudex-prompts/<id>.md`. Prompts are always fed via stdin from a file (sidesteps shell-escaping bugs on prompts that contain backticks, `$`, or quotes). Older Codex versions had a `--full-auto` preset that this plugin no longer relies on.
 - macOS or Linux (Windows via WSL or directly with Git Bash + a working `codex`)
 
 The plugin shells out to `codex exec` and uses your existing Codex auth — no separate API key configuration.

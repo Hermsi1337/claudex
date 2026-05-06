@@ -35,8 +35,9 @@ grep -E '^[[:space:]]*model_reasoning_effort[[:space:]]*=' \
 - Phase 1: subtask classified as `standard`.
 - Phase 3 Bash call **must not** contain `-c model_reasoning_effort=`. It looks roughly like:
   ```bash
-  codex exec --sandbox workspace-write --cd tests/sandboxes/06-reasoning "..."
+  codex exec --sandbox workspace-write --cd tests/sandboxes/06-reasoning - < /tmp/claudex-prompts/<slug>-<id>.md
   ```
+  (Prompt comes from a file via stdin, never inline.)
 
 ## Invocation B — complex subtask (high expected, unless your default is already ≥ high)
 
@@ -53,11 +54,11 @@ now in tests/sandboxes/06-reasoning/, design and implement a small in-memory LRU
 - Phase 3 — depends on what the peek found:
   - **Default is `low`, `medium`, missing, or unreadable** → Bash call **must** contain `-c model_reasoning_effort=high`:
     ```bash
-    codex exec --sandbox workspace-write -c model_reasoning_effort=high --cd tests/sandboxes/06-reasoning "..."
+    codex exec --sandbox workspace-write -c model_reasoning_effort=high --cd tests/sandboxes/06-reasoning - < /tmp/claudex-prompts/<slug>-<id>.md
     ```
   - **Default is already `high` or `xhigh`** → Bash call **must not** contain `-c model_reasoning_effort=` at all. Adding `high` would either be a no-op or, against `xhigh`, would actually lower reasoning.
 
-  Order of flags is irrelevant; what matters is presence vs. absence.
+  Order of flags is irrelevant; what matters is presence vs. absence of the `-c …` flag, and that the prompt always travels via the stdin redirect (never inline-quoted, never via heredoc).
 
 ## Verify
 
