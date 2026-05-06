@@ -33,6 +33,13 @@ If the task is trivially one change in one file, skip the split and run a single
 
 For each Codex subtask, list which files it will likely touch. **Two subtasks that overlap on any file must run sequentially — never in parallel.** When in doubt about disjointness, sequential.
 
+Also tag each Codex subtask with a complexity level — this drives the Codex reasoning override in Phase 3:
+
+- **complex** → algorithm design, ambiguous-spec refactors, multi-file design changes, anything where you'd hesitate yourself if asked to do it cold. These get `-c model_reasoning_effort=high` later.
+- **standard** → everything else. No reasoning override; Codex' own configured default applies.
+
+Do not auto-classify a subtask as a lower level than `standard`. Underestimating is a silent quality hit.
+
 If the task is genuinely ambiguous in a way that affects what Codex would do (e.g. "rewrite the auth module" — which one? what to change?), ask the user one clarifying question before continuing. Do not guess on a destructive ambiguity.
 
 For non-trivial tasks, write the plan to a TodoWrite list before executing — one todo per subtask, marked code or doc.
@@ -55,7 +62,7 @@ Do not pass huge files wholesale to Codex. Pass file paths and relevant excerpts
 For each Codex subtask, invoke:
 
 ```bash
-codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] "<self-contained prompt>"
+codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=high] "<self-contained prompt>"
 ```
 
 Flag rationale (Codex CLI ≥ 0.128):
@@ -63,6 +70,7 @@ Flag rationale (Codex CLI ≥ 0.128):
 - `--sandbox workspace-write` — let Codex write inside its workspace. `codex exec` is non-interactive and has no approval prompts (unlike interactive `codex`), so no `--ask-for-approval` flag applies. The legacy `--full-auto` preset is **not** available on `codex exec` in current versions — do not use it.
 - `--model <name>` — only when the user passed `--model` to `/claudex`. Otherwise omit so Codex' own (newest) default is used.
 - `--cd <dir>` — pass this when the user's task pins the work to a specific subdirectory (e.g. "inside `tests/sandboxes/01-trivial/`"). It restricts Codex' workspace to that dir, so `workspace-write` cannot reach files outside it. Without `--cd`, Codex' workspace is whatever directory `/claudex` was invoked from. Create the target dir first if it doesn't exist.
+- `-c model_reasoning_effort=high` — pass **only** for subtasks tagged `complex` in Phase 1. For `standard` subtasks, omit this flag entirely so the user's `~/.codex/config.toml` (or Codex' built-in fallback) decides — this is intentional, the orchestrator should not need to know what the default is. **Never set `low` automatically**: a misjudged easy task quietly produces worse code, whereas the cost of running a standard task at the user's configured default is zero.
 
 The Codex prompt must include:
 

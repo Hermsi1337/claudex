@@ -99,6 +99,10 @@ Questions about the diff or the codebase don't trigger a Codex run; only sentenc
 
 Codex follows whatever it finds in your `CLAUDE.md` / `AGENTS.md` / `.codex/config.toml`. If nothing is specified, the default is **self-explanatory code, no inline comments** — Claude tells Codex this explicitly when it delegates.
 
+## Reasoning effort
+
+Codex' reasoning level is whatever your `~/.codex/config.toml` says (Codex' own fallback is `medium`). For Codex subtasks Claude classifies as genuinely complex — algorithm design, ambiguous-spec refactors, multi-file design changes — Claude escalates that single invocation to `high` by passing `-c model_reasoning_effort=high`. It never lowers reasoning automatically: misjudging an easy task is a silent quality hit, so the floor stays at your configured default.
+
 ## Parallelism rules
 
 - File-disjoint Codex subtasks run **in parallel** (Claude launches them as background bash jobs while it works on docs).
@@ -119,7 +123,7 @@ These are tracked as future work:
 
 - [ ] Iteration loop (Claude reviews → re-delegates fixes to Codex automatically)
 - [ ] Resume of Codex sessions
-- [ ] Configurable reasoning-effort flag (e.g. `--effort high`)
+- [ ] User-facing reasoning-effort flag (e.g. `--effort high`) — auto-escalation already covers complex subtasks; this would let the user force a level explicitly
 - [ ] Background mode with `/claudex:status` and `/claudex:result`
 
 ## License

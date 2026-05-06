@@ -69,6 +69,7 @@ Doc drift is cheap to prevent in the same commit and expensive to clean up later
 - Codex starts each invocation cold. Anything it needs goes into the prompt — context, file scope, conventions, acceptance criteria.
 - Parallelism is decided in natural language inside `claudex.md`, not enforced by code. Rule: file-disjoint Codex subtasks may run in parallel as `Bash` calls with `run_in_background: true`; anything sharing a file runs sequentially. When in doubt, sequential.
 - Default Codex model is whatever `codex` itself defaults to (so users automatically get its latest). `/claudex --model <name>` overrides for one call.
+- Reasoning effort is auto-tuned per subtask, not exposed as a flag. Phase 1 tags each Codex subtask `complex` or `standard`; Phase 3 only adds `-c model_reasoning_effort=high` for `complex` ones, and never sets `low`. For `standard` subtasks the orchestrator passes no override at all so the user's `~/.codex/config.toml` (or Codex' built-in fallback) wins — meaning we don't have to hard-code or track Codex' default value here.
 - `/claudex:setup` deliberately does **not** run `codex login` — that's an interactive browser flow that doesn't work inside Claude Code.
 
 ## Smoke tests (`tests/`)
@@ -82,4 +83,4 @@ Manual end-to-end scenarios for `/claudex` live under `tests/scenarios/`. Each `
 
 ## Out of scope for now
 
-Tracked in [README.md](README.md) under "Not in this version". Don't expand scope without the user explicitly asking — particularly: no iteration loop, no session resume, no background-mode commands, no `--effort` flag.
+Tracked in [README.md](README.md) under "Not in this version". Don't expand scope without the user explicitly asking — particularly: no iteration loop, no session resume, no background-mode commands, and no user-facing `--effort` flag (auto-escalation already covers complex subtasks; exposing the knob to the user is the part that's still out of scope).
