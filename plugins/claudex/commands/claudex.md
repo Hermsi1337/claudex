@@ -75,7 +75,7 @@ Per Codex subtask:
 2. Use the **Write tool** to write the full prompt content to that path. The Write tool bypasses the shell entirely, so the prompt body can contain anything Codex needs (backticks, code fences, `$VAR`, nested quotes, the literal word `EOF`, etc.) — none of it is parsed by bash. Create `/tmp/claudex-prompts/` via Bash (`mkdir -p`) once before the first Write if it doesn't exist.
 3. Invoke Codex with stdin redirection from that file:
    ```bash
-   codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=<level>] - < /tmp/claudex-prompts/<short-task-slug>-<id>.md
+   codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=<level>] -c model_verbosity=low - < /tmp/claudex-prompts/<short-task-slug>-<id>.md
    ```
    The trailing `-` is Codex' explicit "prompt comes from stdin" placeholder; the `<` redirect feeds it from the file. This is the **only** form to use — no inline-quoted prompts, no `<<EOF` heredocs, no `echo … | codex`.
 
@@ -86,6 +86,7 @@ Flag rationale (Codex CLI ≥ 0.128):
 - `--sandbox workspace-write` — let Codex write inside its workspace. `codex exec` is non-interactive and has no approval prompts (unlike interactive `codex`), so no `--ask-for-approval` flag applies. The legacy `--full-auto` preset is **not** available on `codex exec` in current versions — do not use it.
 - `--model <name>` — only when the user passed `--model` to `/claudex`. Otherwise omit so Codex' own (newest) default is used.
 - `--cd <dir>` — pass this when the user's task pins the work to a specific subdirectory (e.g. "inside `tests/sandboxes/01-trivial/`"). It restricts Codex' workspace to that dir, so `workspace-write` cannot reach files outside it. Without `--cd`, Codex' workspace is whatever directory `/claudex` was invoked from. Create the target dir first if it doesn't exist.
+- `-c model_verbosity=low` — set on **every** Codex call, unconditionally. Claude reviews Codex' work via `git diff`, not via Codex' assistant prose, so verbose narration is pure token waste. `low` keeps the actually-useful parts (final short summary, error strings, code blocks Codex chose to show) and trims preamble/recap/filler. This overrides whatever `model_verbosity` the user has in `~/.codex/config.toml` for the duration of the call. There is no user-facing flag to opt out yet — if that ever becomes a real need, add a `--verbose` override; do not silently make this default-off.
 - `-c model_reasoning_effort=<level>` — decided in this priority order:
   1. **User passed `--effort <level>`** → pass exactly that level for every Codex subtask in this call. The user override wins over auto-classification, including the `low` direction and `xhigh`.
   2. **Subtask is `complex` and Phase 2 peek showed default *below* `high`** (i.e. `low`, `medium`, missing, or unreadable) → pass `-c model_reasoning_effort=high`.
@@ -101,6 +102,7 @@ The Codex prompt content must include:
 3. **Project conventions** — comment style, test framework, lint rules you found in Phase 2.
 4. **Acceptance criteria** — what "done" looks like for this subtask, including whether tests must pass.
 5. **Hand-off back to Claude** — tell Codex to stop after applying changes and not to commit. Claude (the orchestrator) handles git and reviewing.
+6. **Output discipline** — explicitly tell Codex: no preamble, no recap of the prompt, no narration of what it is about to do. After applying changes, summarise in **at most 5 short bullets**, one per file or coherent change, in the form `path/to/file: one-line change`. Quote any error or test-failure verbatim. Code blocks only when essential (e.g. you need to show a tricky snippet you actually wrote); the diff is Claude's primary review surface, not Codex' prose. This pairs with `-c model_verbosity=low` from the flag list — the prompt-side rule is what guarantees the final summary stays useful even at low verbosity.
 
 ### Parallelism rules
 
