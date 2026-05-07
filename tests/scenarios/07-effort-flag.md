@@ -28,24 +28,27 @@ The task is genuinely complex (would normally auto-escalate to `high`). With `--
   ```
 - The auto-classification that would have escalated this task to `high` is overridden — the `low` from `--effort` wins.
 
-## Invocation B — `--effort xhigh` on a trivial task
+## Invocation B — `--effort xhigh` on a `standard` subtask
 
-The task is trivial (would normally get no override). With `--effort xhigh`, the user override must still apply.
+The task is non-trivial enough to reach Codex but would auto-classify as `standard` (no reasoning override). With `--effort xhigh`, the user override must still apply.
+
+Note: the task explicitly includes a test-suite re-run, which fails the trivial-code carve-out's "no test execution required" criterion on purpose — a bare rename would otherwise stay in Claude under Phase 1's trivial-code rule and `--effort` would have nothing to forward.
 
 Run in the same conversation (sticky mode) to also verify the override travels through sticky calls:
 
 ```
-now with --effort xhigh, in tests/sandboxes/07-effort/, rename cache.py's TTLCache class to TimedCache and update test_cache.py accordingly. Do not modify anything outside tests/sandboxes/07-effort/.
+now with --effort xhigh, in tests/sandboxes/07-effort/, rename cache.py's TTLCache class to TimedCache, add a `clear()` method that removes all cached entries, update test_cache.py to cover the new method, and verify the full test suite passes. Do not modify anything outside tests/sandboxes/07-effort/.
 ```
 
 ### Expected behaviour
 
 - **Argument parsing:** `--effort xhigh` is stripped from the task description.
+- **Phase 1:** subtask is **not** trivial (test-suite verification is required) → goes to Codex.
 - **Phase 3:** Bash call carries `-c model_reasoning_effort=xhigh`, again with the prompt via the stdin file:
   ```bash
   codex exec --sandbox workspace-write -c model_reasoning_effort=xhigh --cd tests/sandboxes/07-effort - < /tmp/claudex-prompts/<slug>-<id>.md
   ```
-- The fact that the rename is a `standard` subtask is irrelevant — the user override wins.
+- The fact that the rename + small extension is a `standard` subtask is irrelevant — the user override wins.
 
 ## Invocation C — invalid level
 
@@ -67,7 +70,7 @@ Inspect the transcript for invocations A and B and confirm:
 ```bash
 ls tests/sandboxes/07-effort/
 # after A: cache.py, test_cache.py
-# after B: same files, with TTLCache → TimedCache renamed
+# after B: same files, with TTLCache → TimedCache renamed and a new clear() method covered by tests
 # after C: nothing new (the orchestrator should have stopped before launching Codex)
 
 git status --porcelain -- ':(exclude)tests/sandboxes/'

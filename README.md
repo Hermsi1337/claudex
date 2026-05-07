@@ -46,7 +46,7 @@ Then verify your Codex CLI is ready:
 /claudex add a healthcheck endpoint at /api/health
 ```
 
-Claude reads the relevant files, sends one self-contained prompt to Codex, then reviews the diff.
+Claude reads the relevant files, sends one self-contained prompt to Codex, then reviews the diff. For genuinely trivial single-edit changes (rename a symbol with a known target, bump a version pin, fix a typo) Claude applies the change directly without invoking Codex — see the table below.
 
 ### Complex case (parallel + sequential)
 
@@ -101,9 +101,12 @@ Questions about the diff or the codebase don't trigger a Codex run; only sentenc
 | Refactoring | Codex |
 | Writing tests | Codex |
 | Mechanical edits across many files | Codex |
+| Trivial single-edit changes (rename with known target, version bump, missing import, typo fix) | Claude |
 | READMEs, ADRs, design notes | Claude |
 | Commit messages, PR descriptions | Claude |
 | Architectural decisions | Claude |
+
+A code subtask is treated as "trivial" only if the change is fully specified, fits in ≤2 files, needs no test/build loop, and Claude wouldn't have to read more than ~2 files to write the diff. When in doubt → Codex.
 
 ## Inline-comment policy
 
@@ -112,6 +115,10 @@ Codex follows whatever it finds in your `CLAUDE.md` / `AGENTS.md` / `.codex/conf
 ## Output verbosity
 
 Every `codex exec` call is launched with `-c model_verbosity=low`, and the prompt that Claude sends explicitly tells Codex to skip preamble/recap and to summarise the result in at most 5 short bullets. This is on for every call and overrides whatever `model_verbosity` is in your `~/.codex/config.toml` for the duration of the call. The reason is workflow-specific: Claude reviews each Codex run via `git diff`, so verbose Codex prose is pure token waste — the diff is the source of truth, not Codex' narration. There is no flag to opt out yet; if you actually need verbose Codex output, file an issue.
+
+## Execution discipline
+
+The prompt template also forbids Codex from running steps the orchestrator handles itself: no `git status` / `git diff` / `git log` (the orchestrator reviews via diff anyway), no formatter runs (`gofmt`, `prettier`, `black`, etc. — the orchestrator runs them after review), and tests at most once instead of after every fix. Codex is also told to stop opening additional files when the relevant excerpts are already embedded in the prompt. This stops Codex from repeatedly pulling its own diff and test output back into its own context, which is the dominant token leak in long-running Codex calls.
 
 ## Reasoning effort
 

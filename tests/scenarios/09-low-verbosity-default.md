@@ -4,10 +4,12 @@
 
 Verify two things that together implement the always-on token-trimming default:
 
-1. **Flag side.** Every `codex exec` invocation the orchestrator issues includes `-c model_verbosity=low`. There is no flag to opt out and no per-subtask exception — the override must appear on every call, including sticky-mode follow-ups, complex subtasks, and the negative-check rename below.
+1. **Flag side.** Every `codex exec` invocation the orchestrator issues includes `-c model_verbosity=low`. There is no flag to opt out and no per-subtask exception — the override must appear on every call, including sticky-mode follow-ups, complex subtasks, and the negative-check below.
 2. **Prompt side.** The prompt the orchestrator writes under `/tmp/claudex-prompts/` tells Codex explicitly: no preamble, no recap, summarise the result in at most 5 short bullets in the form `path/to/file: one-line change`, errors quoted verbatim, code blocks only when essential.
 
 If either half is missing, this is a regression.
+
+The invocations below intentionally include a test-suite verification step so they fail the Phase 1 trivial-code carve-out's "no test execution required" criterion and reach Codex. A bare "create greet.py with a function" task would otherwise stay in Claude under the trivial-code rule, leaving no `codex exec` call to inspect.
 
 ## Setup
 
@@ -16,10 +18,10 @@ rm -rf tests/sandboxes/09-verbosity
 mkdir -p tests/sandboxes/09-verbosity
 ```
 
-## Invocation A — trivial task (single subtask, sticky-off)
+## Invocation A — single Codex subtask (sticky-off)
 
 ```
-/claudex In tests/sandboxes/09-verbosity/, create greet.py with a function greet(name) that returns "hello, " + name. Do not modify anything outside tests/sandboxes/09-verbosity/.
+/claudex In tests/sandboxes/09-verbosity/, create a `Greeter` class in greet.py exposing greet(name) returning "hello, " + name and goodbye(name) returning "bye, " + name. Add tests in test_greet.py covering both methods, and verify the test suite passes by running `python -m pytest test_greet.py`. Do not modify anything outside tests/sandboxes/09-verbosity/.
 ```
 
 ### Expected behaviour
@@ -30,14 +32,14 @@ mkdir -p tests/sandboxes/09-verbosity
   ```
   (Combined with whatever other flags Phase 3 decided to add, e.g. `-c model_reasoning_effort=…` — but `model_verbosity=low` is unconditional.)
 - Open the prompt file under `/tmp/claudex-prompts/` that this run produced. It must contain language that maps to the must-include #6 rule: an explicit "no preamble / no recap / no narration" instruction, a "summarise in at most 5 short bullets" instruction, and "quote errors verbatim". Exact wording is up to the orchestrator; the substance must be there.
-- Codex' own final assistant message in the transcript should be short: no "Sure, I'd be happy to help" preamble, no recap of the task, a final summary of at most 5 bullets. Rule of thumb for this trivial task: ≤ 10 lines of Codex prose total.
+- Codex' own final assistant message in the transcript should be short: no "Sure, I'd be happy to help" preamble, no recap of the task, a final summary of at most 5 bullets per file changed. Rule of thumb for this single-subtask task: ≤ 15 lines of Codex prose total.
 
 ## Invocation B — sticky follow-up
 
 In the same conversation, without retyping `/claudex`:
 
 ```
-now also add a goodbye(name) function in tests/sandboxes/09-verbosity/greet.py that returns "bye, " + name.
+now extend Greeter with a welcome_back(name) method returning "welcome back, " + name. Add a test for it in test_greet.py and re-verify the test suite passes.
 ```
 
 ### Expected behaviour
@@ -64,7 +66,7 @@ now in tests/sandboxes/09-verbosity/, design and implement a small TTL-cache mod
 ```bash
 # Files Codex was supposed to produce.
 ls tests/sandboxes/09-verbosity/
-# expect at least: greet.py, ttl_cache.py, test_ttl_cache.py
+# expect at least: greet.py, test_greet.py, ttl_cache.py, test_ttl_cache.py
 
 # At least one prompt file from this run exists, and the most recent ones contain
 # the output-discipline language (substance, not exact wording).
@@ -85,8 +87,9 @@ If your client hides the underlying Bash command, look for the orchestrator's Ph
 
 - `-c model_verbosity=low` missing on **any** of the three invocations → regression on the unconditional rule.
 - Prompt file lacks the output-discipline language → the flag alone won't keep summaries useful; both halves must ship together.
-- Codex' final message in the transcript is multiple paragraphs of prose for the trivial Invocation A → either the prompt rule isn't being applied, or `model_verbosity=low` isn't actually being passed (check the Bash call).
-- Orchestrator adds a per-subtask `model_verbosity` (e.g. `high` for `complex`) → this is explicitly out of scope for variant A; flag and recommend revert.
+- Codex' final message in the transcript is multiple paragraphs of prose for the small Invocation A → either the prompt rule isn't being applied, or `model_verbosity=low` isn't actually being passed (check the Bash call).
+- Orchestrator adds a per-subtask `model_verbosity` (e.g. `high` for `complex`) → this is explicitly out of scope; flag and recommend revert.
+- Invocation A or B keeps the work in Claude (no `codex exec` call) → either the test-verification step in the prompt was dropped, or the trivial-code carve-out is over-firing. Both halves of the verbosity check require Codex to actually run; without a Codex call there is nothing to inspect.
 
 ## Cleanup
 

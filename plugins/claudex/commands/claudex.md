@@ -27,10 +27,18 @@ The remainder is the natural-language task description. If it is empty, ask the 
 
 Split the task into subtasks. For each one, classify:
 
-- **Code subtask** → delegate to Codex. Examples: implementing a feature, refactoring, writing tests, modifying configuration, mechanical edits across files.
+- **Code subtask** → in most cases delegate to Codex. **Exception — trivial code:** if **all** of these hold, do it yourself with Edit/Write instead of round-tripping through Codex:
+  1. The change is fully specified in the prompt — no "find out where X is", no design choice (naming, API shape, data structure) left open.
+  2. The edit fits in ≤2 files.
+  3. No test execution or build loop is required to produce the change.
+  4. You would not need to read more than ~2 files to write the diff.
+
+  Examples that stay in Claude under this exception: rename a symbol with a known target, change a constant value, add a missing import, bump a version pin, fix a typo. Examples that still go to Codex: implementing a feature, multi-file refactor, writing or extending tests, configuration spread across many files, anything where you'd have to explore the codebase to decide what to change. Apply the Phase 2 conventions yourself when you keep the work in Claude.
 - **Doc subtask** → handle yourself. Examples: READMEs, ADRs, conceptual explanations, design notes, commit messages, PR descriptions.
 
-If the task is trivially one change in one file, skip the split and run a single Codex invocation.
+**When in doubt between trivial and full Codex delegation → Codex.** The user invoked `/claudex` because they wanted Codex doing the code work; only take it back to Claude when a Codex round-trip would be pure overhead (no real implementation work, no exploration, no verification loop).
+
+If the entire task fits the trivial-code exception above, skip splitting and apply the change yourself directly without invoking Codex at all.
 
 For each Codex subtask, list which files it will likely touch. **Two subtasks that overlap on any file must run sequentially — never in parallel.** When in doubt about disjointness, sequential.
 
@@ -101,7 +109,12 @@ The Codex prompt content must include:
 2. **Files in scope** — explicit list of files Codex may modify. Tell Codex not to touch anything else.
 3. **Project conventions** — comment style, test framework, lint rules you found in Phase 2.
 4. **Acceptance criteria** — what "done" looks like for this subtask, including whether tests must pass.
-5. **Hand-off back to Claude** — tell Codex to stop after applying changes and not to commit. Claude (the orchestrator) handles git and reviewing.
+5. **Hand-off back to Claude** — tell Codex explicitly:
+   - Stop after applying the requested changes. Do not commit, do not push.
+   - **Do not run `git status`, `git diff`, `git log`, `git show`, or any other git inspection command.** Reading the diff is the orchestrator's job; running it inside Codex pulls the entire diff back into Codex' own context for no benefit.
+   - **Do not run formatters** (`gofmt`, `goimports`, `prettier`, `black`, `rustfmt`, `ruff format`, etc.). The orchestrator runs them after reviewing the diff.
+   - **Run tests at most once**, only as a final correctness check, and only when this subtask's acceptance criteria explicitly require it. Do not re-run tests after applying fixes — leave repeated verification to the orchestrator.
+   - **Open additional files only when a build or test failure names a specific file you have not yet seen.** All code excerpts you need to reason about are embedded in this prompt; re-reading files whose relevant parts are already quoted is wasted context.
 6. **Output discipline** — explicitly tell Codex: no preamble, no recap of the prompt, no narration of what it is about to do. After applying changes, summarise in **at most 5 short bullets**, one per file or coherent change, in the form `path/to/file: one-line change`. Quote any error or test-failure verbatim. Code blocks only when essential (e.g. you need to show a tricky snippet you actually wrote); the diff is Claude's primary review surface, not Codex' prose. This pairs with `-c model_verbosity=low` from the flag list — the prompt-side rule is what guarantees the final summary stays useful even at low verbosity.
 
 ### Parallelism rules
@@ -130,7 +143,7 @@ When all Codex jobs are done **and** all your own doc subtasks are done:
    - **Style:** Matches surrounding code and the conventions from Phase 2.
    - **Comments:** Match the project's policy. If the policy is "no comments" and Codex added comments, flag it.
    - **Tests:** If tests were requested, do they actually exercise the new behaviour? If a test command is obvious, run it.
-3. **Do not review your own doc work.** Trust your own output.
+3. **Do not review your own work** (doc subtasks or trivial-code subtasks Claude handled directly). Trust your own output. The review pass exists to catch Codex going off-script, not to second-guess Edits Claude already made deliberately.
 4. If two parallel Codex jobs both modified the same file, you misjudged disjointness — flag this prominently and recommend reverting.
 
 ## Phase 5 — Report
