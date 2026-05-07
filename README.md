@@ -109,6 +109,10 @@ Questions about the diff or the codebase don't trigger a Codex run; only sentenc
 
 Codex follows whatever it finds in your `CLAUDE.md` / `AGENTS.md` / `.codex/config.toml`. If nothing is specified, the default is **self-explanatory code, no inline comments** — Claude tells Codex this explicitly when it delegates.
 
+## Output verbosity
+
+Every `codex exec` call is launched with `-c model_verbosity=low`, and the prompt that Claude sends explicitly tells Codex to skip preamble/recap and to summarise the result in at most 5 short bullets. This is on for every call and overrides whatever `model_verbosity` is in your `~/.codex/config.toml` for the duration of the call. The reason is workflow-specific: Claude reviews each Codex run via `git diff`, so verbose Codex prose is pure token waste — the diff is the source of truth, not Codex' narration. There is no flag to opt out yet; if you actually need verbose Codex output, file an issue.
+
 ## Reasoning effort
 
 By default, Codex runs at whatever level your `~/.codex/config.toml` configures (Codex' own fallback is `medium`). Codex supports `low`, `medium`, `high`, and `xhigh`, in that order.
