@@ -63,7 +63,7 @@ In Phase 4 (review), watch what the orchestrator notices:
 
 If the orchestrator silently skips a phase, that's a bug in `plugins/claudex/commands/claudex.md`, not a Codex problem.
 
-In Phase 3, every Codex call should look like `codex exec [flags] - < /tmp/claudex-prompts/<slug>-<id>.md`. If you ever see the prompt inlined as a positional argument or wrapped in a heredoc, that's a regression — the orchestrator must always go through the prompt-file path.
+In Phase 3, every Codex call should look like `codex exec [flags] - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md`. If you ever see the prompt inlined as a positional argument or wrapped in a heredoc, that's a regression — the orchestrator must always go through the prompt-file path. Each `/claudex` call resolves its own per-call subdirectory (timestamped + 6-hex `call_id`) so concurrent sessions don't share prompt files.
 
 ## Adding a new scenario
 

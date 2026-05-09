@@ -24,7 +24,7 @@ PY
 ## Expected behaviour
 
 - **Phase 1:** split into 2 Codex subtasks. **Both touch `calc.py`** → file overlap → **must run sequentially**. Claude should explicitly call this out in its plan.
-- **Phase 3:** **two `codex exec [flags] - < /tmp/claudex-prompts/<slug>-<id>.md` Bash calls back-to-back, neither in background**, each preceded by its own Write-tool call to materialise the prompt file. The second Codex call starts only after the first finishes. **No** `run_in_background: true`. **No** inline-quoted prompts and **no** heredocs anywhere.
+- **Phase 3:** **two `codex exec [flags] - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md` Bash calls back-to-back, neither in background**, each preceded by its own Write-tool call to materialise the prompt file under the same per-call subdirectory (resolved once at the start of this `/claudex` call). The second Codex call starts only after the first finishes. **No** `run_in_background: true`. **No** inline-quoted prompts and **no** heredocs anywhere.
 - **Phase 4:** review reads the final `calc.py`, confirms both new functions are present, the original `add` is intact, and divide raises `ZeroDivisionError` for `b == 0`.
 
 ## Failure mode to watch for

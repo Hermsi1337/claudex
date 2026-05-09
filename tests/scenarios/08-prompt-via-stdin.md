@@ -2,7 +2,7 @@
 
 ## Goal
 
-Verify that the orchestrator delivers Codex prompts via a file + stdin redirect (`codex exec [flags] - < /tmp/claudex-prompts/<slug>-<id>.md`), **not** as an inline-quoted positional argument and **not** through a heredoc. The prompt content for this scenario is deliberately full of shell metacharacters that would have broken inline quoting.
+Verify that the orchestrator delivers Codex prompts via a file + stdin redirect (`codex exec [flags] - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md`), **not** as an inline-quoted positional argument and **not** through a heredoc. The prompt content for this scenario is deliberately full of shell metacharacters that would have broken inline quoting.
 
 ## Setup
 
@@ -22,10 +22,10 @@ The task description below contains backticks, `$VAR`-looking tokens, embedded d
 ## Expected behaviour
 
 - **Phase 3 — prompt delivery:**
-  - Before invoking Codex, Claude calls the **Write** tool to create a file under `/tmp/claudex-prompts/`, e.g. `/tmp/claudex-prompts/notes-and-scan-<id>.md`. The Write tool is what materialises the prompt — **not** a `cat <<EOF` heredoc inside Bash.
+  - Before invoking Codex, Claude resolves a per-call subdirectory under `/tmp/claudex-prompts/` (`<call_id>` = timestamp + 6 hex chars) and calls the **Write** tool to create a file inside it, e.g. `/tmp/claudex-prompts/<call_id>/notes-and-scan-<id>.md`. The Write tool is what materialises the prompt — **not** a `cat <<EOF` heredoc inside Bash.
   - The actual `codex exec` Bash call has the form:
     ```bash
-    codex exec --sandbox workspace-write --cd tests/sandboxes/08-stdin - < /tmp/claudex-prompts/<slug>-<id>.md
+    codex exec --sandbox workspace-write --cd tests/sandboxes/08-stdin - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md
     ```
     `-` (read prompt from stdin) and `< <file>` (feed stdin from the prompt file) are both required. No part of the natural-language prompt may appear as a positional argument or inside a heredoc.
 - **Phase 4 — review:** confirms `notes.md` contains exactly the three lines specified, with backticks, `$HOME` (literal, unexpanded), and the mixed-quote sentence intact. Confirms `scan.py` defines `find_eof` correctly.
@@ -44,7 +44,14 @@ Any of those is a **regression on the prompt-delivery rule** and must be flagged
 
 ```bash
 # The prompt file must exist (the orchestrator should not delete it).
-ls /tmp/claudex-prompts/ | grep -E '\.md$' || echo "NO PROMPT FILE FOUND — regression"
+# Find the most recent per-call subdirectory under the resolved prompt root and check it has a .md inside.
+prompt_root="$(cd /tmp/claudex-prompts && pwd -W 2>/dev/null || pwd)"
+latest_call="$(ls -1t "$prompt_root" 2>/dev/null | head -1)"
+if [ -n "$latest_call" ] && ls "$prompt_root/$latest_call"/*.md >/dev/null 2>&1; then
+  echo "prompt file found in $prompt_root/$latest_call"
+else
+  echo "NO PROMPT FILE FOUND — regression"
+fi
 
 # notes.md content
 cat tests/sandboxes/08-stdin/notes.md
@@ -77,6 +84,6 @@ git status --porcelain -- ':(exclude)tests/sandboxes/'
 
 ```bash
 rm -rf tests/sandboxes/08-stdin
-# Optional — only delete prompt files for this scenario, not unrelated ones.
-# /tmp is wiped on reboot anyway, so leaving them is fine.
+# Optional — the per-call subdirectory under /tmp/claudex-prompts/ is left behind on purpose
+# (debugging value). The OS temp cleanup handles it eventually.
 ```
