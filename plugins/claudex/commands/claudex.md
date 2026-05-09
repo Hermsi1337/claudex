@@ -75,23 +75,43 @@ Do not pass huge files wholesale to Codex. Pass file paths and relevant excerpts
 
 For each Codex subtask, **never pass the prompt as a positional argument**. Shell escaping has bitten us — backticks, `$`, embedded quotes, and heredoc-delimiter collisions in the prompt content silently corrupt the call. Instead, the prompt always travels via stdin from a file you wrote with the **Write tool**.
 
-Per Codex subtask:
+### Resolve the per-call prompt directory (once per `/claudex` call)
 
-1. Pick a stable, unique path under `/tmp/claudex-prompts/`, e.g.
-   `/tmp/claudex-prompts/<short-task-slug>-<8-char-id>.md`.
-   Slug from the subtask description (lowercased, hyphenated, ASCII), id from a small random suffix or session-local counter — anything that won't collide with parallel subtasks in the same call. Don't reuse a path between subtasks.
-2. Use the **Write tool** to write the full prompt content to that path. The Write tool bypasses the shell entirely, so the prompt body can contain anything Codex needs (backticks, code fences, `$VAR`, nested quotes, the literal word `EOF`, etc.) — none of it is parsed by bash. Create `/tmp/claudex-prompts/` via Bash (`mkdir -p`) once before the first Write if it doesn't exist.
+Each `/claudex` call gets its **own** subdirectory under the prompt root. Multiple Claude Code sessions running `/claudex` concurrently — or repeated calls in the same session — must not pile prompt files into a single shared dir; per-call isolation makes botched-run forensics easy ("everything in `<call-id>/` belongs to one call") and keeps parallel sessions from racing on filenames.
+
+Before writing any prompt files, run this in Bash and treat the output as the canonical absolute prompt directory for the rest of this call:
+
+```bash
+mkdir -p /tmp/claudex-prompts \
+  && call_id="$(date +%Y%m%d-%H%M%S)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 6)" \
+  && call_dir="/tmp/claudex-prompts/$call_id" \
+  && mkdir -p "$call_dir" \
+  && (cd "$call_dir" && pwd -W 2>/dev/null || pwd)
+```
+
+- The `call_id` is `<UTC-ish timestamp>-<6 hex chars>`, e.g. `20260509-171152-89c895`. Sortable by time so `ls -t /tmp/claudex-prompts/` puts the most recent call on top.
+- On macOS / Linux the resolved path is `/tmp/claudex-prompts/<call_id>` and the inner `pwd -W` falls back to `pwd`.
+- On Windows Git Bash (`uname -s` reports `MINGW*` / `MSYS*` / `CYGWIN*`), `pwd -W` resolves Bash's `/tmp` mapping to the underlying Windows path, e.g. `C:/Users/<user>/AppData/Local/Temp/claudex-prompts/<call_id>`.
+
+The `pwd -W` resolution is **mandatory on Windows**, not cosmetic. Claude Code's Write tool resolves a path like `/tmp/claudex-prompts/foo.md` against the current drive — it lands at `D:/tmp/claudex-prompts/foo.md` — while Bash's `/tmp` is the user's `$TMPDIR`, typically under `C:/Users/...`. They are different real directories, so a Write to `/tmp/...` followed by a Bash `< /tmp/...` redirect fails with `bash: /tmp/.../foo.md: No such file or directory` (the prompt was written one place, the redirect reads another). The resolved absolute path is what makes both tools agree on file location.
+
+Use the resolved path everywhere below — as the directory passed to the Write tool **and** as the redirect source in the `codex exec` Bash call. Compute it once per `/claudex` call (not per subtask, and not once per session — sticky-mode follow-ups are each their own call and get their own `<call_id>`).
+
+### Per Codex subtask
+
+1. Pick a unique filename `<short-task-slug>-<8-char-id>.md`. Slug from the subtask description (lowercased, hyphenated, ASCII), id from a small random suffix or session-local counter — anything that won't collide with parallel subtasks in the same call. Don't reuse a filename between subtasks.
+2. Use the **Write tool** to write the full prompt content to `<resolved-call-dir>/<filename>`. The Write tool bypasses the shell entirely, so the prompt body can contain anything Codex needs (backticks, code fences, `$VAR`, nested quotes, the literal word `EOF`, etc.) — none of it is parsed by bash.
 3. Invoke Codex with stdin redirection from that file:
    ```bash
-   codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=<level>] -c model_verbosity=low - < /tmp/claudex-prompts/<short-task-slug>-<id>.md
+   codex exec --sandbox workspace-write [--model <name>] [--cd <dir>] [-c model_reasoning_effort=<level>] -c model_verbosity=low - < <resolved-call-dir>/<filename>
    ```
    The trailing `-` is Codex' explicit "prompt comes from stdin" placeholder; the `<` redirect feeds it from the file. This is the **only** form to use — no inline-quoted prompts, no `<<EOF` heredocs, no `echo … | codex`.
 
-Do not delete the prompt file after the call. Leaving it under `/tmp` is what makes a botched run debuggable — `/tmp` is wiped on reboot anyway.
+Do not delete the prompt files or the call directory after the run. Leaving the per-call dir on disk is what makes a botched run debuggable — the prompt root lives under the OS temp dir and gets cleaned up out-of-band anyway.
 
 Flag rationale (Codex CLI ≥ 0.128):
 
-- `--sandbox workspace-write` — let Codex write inside its workspace. `codex exec` is non-interactive and has no approval prompts (unlike interactive `codex`), so no `--ask-for-approval` flag applies. The legacy `--full-auto` preset is **not** available on `codex exec` in current versions — do not use it.
+- `--sandbox workspace-write` — let Codex write inside its workspace. `codex exec` is non-interactive and has no approval prompts (unlike interactive `codex`), so no `--ask-for-approval` flag applies. The legacy `--full-auto` preset is **not** available on `codex exec` in current versions — do not use it. **Caveat:** if the project isn't in the user's Codex trust list, `workspace-write` effectively falls back to read-only and patches are rejected. See "Sandbox trust handling" below for how this is detected and recovered.
 - `--model <name>` — only when the user passed `--model` to `/claudex`. Otherwise omit so Codex' own (newest) default is used.
 - `--cd <dir>` — pass this when the user's task pins the work to a specific subdirectory (e.g. "inside `tests/sandboxes/01-trivial/`"). It restricts Codex' workspace to that dir, so `workspace-write` cannot reach files outside it. Without `--cd`, Codex' workspace is whatever directory `/claudex` was invoked from. Create the target dir first if it doesn't exist.
 - `-c model_verbosity=low` — set on **every** Codex call, unconditionally. Claude reviews Codex' work via `git diff`, not via Codex' assistant prose, so verbose narration is pure token waste. `low` keeps the actually-useful parts (final short summary, error strings, code blocks Codex chose to show) and trims preamble/recap/filler. This overrides whatever `model_verbosity` the user has in `~/.codex/config.toml` for the duration of the call. There is no user-facing flag to opt out yet — if that ever becomes a real need, add a `--verbose` override; do not silently make this default-off.
@@ -102,6 +122,22 @@ Flag rationale (Codex CLI ≥ 0.128):
   4. **Subtask is `standard`** → omit the flag. The user's `~/.codex/config.toml` (or Codex' built-in fallback) decides.
 
   **Never set `low` automatically, and never auto-escalate to `xhigh`.** Lowering reasoning or jumping straight to `xhigh` is only legal when the user explicitly asks for it via `--effort`.
+
+### Sandbox trust handling (and the bypass-flag fallback)
+
+For `--sandbox workspace-write` to actually permit writes, Codex requires the project to be in the user's trust list at `~/.codex/config.toml` (a `[projects.'<path>'] trust_level = "trusted"` entry, or the platform-equivalent form). When the project isn't trusted, Codex rejects every patch with:
+
+```
+error=patch rejected: writing is blocked by read-only sandbox; rejected by user approval settings
+```
+
+The runtime `-c projects.X.trust_level="trusted"` config override does **not** reliably patch this on Windows — it has been observed to be ignored even with the correct TOML key form. The only reliable in-call recovery is `--dangerously-bypass-approvals-and-sandbox`, which is documented on `codex exec --help` for Codex CLI ≥ 0.128 ("Skip all confirmation prompts and execute commands without sandboxing"). The earlier `--full-auto` preset rule still stands (it doesn't exist on `codex exec`); the bypass flag is its current replacement when sandbox enforcement gets in the way.
+
+**Runtime fallback.** Capture both stdout and stderr from every `codex exec` invocation. If the combined output contains the literal substring `patch rejected: writing is blocked by read-only sandbox`, retry the **same** command exactly once with `--dangerously-bypass-approvals-and-sandbox` appended. Do not retry on any other error string — sandbox rejection is the only failure this fallback is for; surface every other failure normally per the "Monitoring background jobs" rules below.
+
+When the fallback fires, record it. In Phase 5 the report must include a **prominent** notice along these lines: "Codex sandbox rejected writes for `<subtask>`. Retried with `--dangerously-bypass-approvals-and-sandbox`. Run `/claudex:setup` to permanently trust this project so future runs don't need the bypass." Do not bury this — the user should know they ran with sandboxing disabled, even if the result is correct.
+
+If the bypass retry **also** fails (or fails for a different reason), do not retry again. Stop, surface the exact failing command and Codex' output in the report, and tell the user to run `/claudex:setup`.
 
 The Codex prompt content must include:
 
@@ -163,11 +199,15 @@ Output a single structured message:
 - <file>: <issue or "looks good">
 - ...
 
+## Notices
+- <e.g. "Codex sandbox rejected writes for <subtask>; retried with --dangerously-bypass-approvals-and-sandbox. Run /claudex:setup to permanently trust this project.">
+- ...
+
 ## Recommendation
 <commit / iterate on <issue> / revert because <reason>>
 ```
 
-Be terse. The user reads the diff themselves; your review notes should call out things the diff alone doesn't reveal.
+Be terse. The user reads the diff themselves; your review notes should call out things the diff alone doesn't reveal. Omit the **Notices** section entirely when there's nothing to surface — but always include it when the sandbox bypass-fallback fired or any other out-of-band recovery happened during the call. The user needs to see that.
 
 ## Subsequent requests in this conversation (sticky mode)
 
@@ -197,4 +237,7 @@ If you're unsure whether a request is task-shaped or conversational, ask one cla
 - Two parallel Codex jobs both edited the same file → recommend revert and retry sequentially.
 - `codex` command not found or auth missing → tell the user to run `/claudex:setup` and stop.
 - Codex rejects the invocation flag (e.g. `--sandbox` not recognised) → likely a Codex version mismatch (we target ≥ 0.128). Surface the exact `codex --version` and the failing command in the report.
-- Tempted to inline the prompt as a positional argument because it's "just a short string" → don't. Always go through the prompt file + stdin path described in Phase 3, even for one-line prompts. The escaping risk is non-zero for any user-influenced content, and a uniform path keeps debugging simple (every Codex call has a corresponding `/tmp/claudex-prompts/*.md` to inspect).
+- Codex emits `patch rejected: writing is blocked by read-only sandbox` → the project isn't in the Codex trust list. The Phase 3 runtime fallback handles this (one retry with `--dangerously-bypass-approvals-and-sandbox`); make sure Phase 5 surfaces the notice and tells the user to run `/claudex:setup` to fix it permanently. Don't keep silently bypassing the sandbox on every future call in this conversation — let the user decide.
+- Bash redirect fails with `bash: /tmp/claudex-prompts/.../foo.md: No such file or directory` despite a successful Write → you skipped the "Resolve the per-call prompt directory" step in Phase 3 on Windows. Claude Code's Write resolves `/tmp/...` against the current drive while Bash's `/tmp` is `$TMPDIR`; the file went to `D:/tmp/...` and the redirect looks under `C:/Users/...`. Run the resolution command and use the returned absolute call-dir path for both the Write and the redirect.
+- Two `/claudex` calls in the same session, or two concurrent Claude Code sessions, accidentally share a prompt directory and overwrite each other's files → you reused the resolved path from a previous call. Re-run the resolution command at the start of every `/claudex` call so each gets its own `<call_id>` subdirectory.
+- Tempted to inline the prompt as a positional argument because it's "just a short string" → don't. Always go through the prompt file + stdin path described in Phase 3, even for one-line prompts. The escaping risk is non-zero for any user-influenced content, and a uniform path keeps debugging simple (every Codex call has a corresponding prompt file in the per-call directory to inspect).

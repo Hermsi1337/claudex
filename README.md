@@ -18,8 +18,9 @@ Inspired by [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc
 - [OpenAI Codex CLI](https://github.com/openai/codex) **≥ 0.128** installed and authenticated locally
   - `npm install -g @openai/codex`
   - `codex login`
-  - The plugin uses `codex exec --sandbox workspace-write [--cd <dir>] [--model <name>] - < /tmp/claudex-prompts/<id>.md`. Prompts are always fed via stdin from a file (sidesteps shell-escaping bugs on prompts that contain backticks, `$`, or quotes). Older Codex versions had a `--full-auto` preset that this plugin no longer relies on.
-- macOS or Linux (Windows via WSL or directly with Git Bash + a working `codex`)
+  - The plugin uses `codex exec --sandbox workspace-write [--cd <dir>] [--model <name>] - < <prompt-dir>/<id>.md`. Prompts are always fed via stdin from a file (sidesteps shell-escaping bugs on prompts that contain backticks, `$`, or quotes). Each `/claudex` call writes into its own per-call subdirectory `/tmp/claudex-prompts/<call_id>/` (or the Windows-resolved equivalent under `%TEMP%\claudex-prompts\<call_id>\` on Git Bash) so concurrent Claude Code sessions don't pile prompt files on top of each other. `call_id` is timestamped (`20260509-171152-89c895`), so `ls -t /tmp/claudex-prompts/` shows the most recent call on top. Older Codex versions had a `--full-auto` preset that this plugin no longer relies on.
+  - **Project trust:** Codex' `--sandbox workspace-write` only actually permits writes when the project is in the user's `~/.codex/config.toml` trust list (a `[projects.'<path>'] trust_level = "trusted"` entry). `/claudex:setup` checks the current project and offers to add it for you. Without trust, Codex rejects every patch with `patch rejected: writing is blocked by read-only sandbox`; in that case `/claudex` retries the call once with `--dangerously-bypass-approvals-and-sandbox` and surfaces a notice telling you to run `/claudex:setup` to fix it permanently.
+- macOS, Linux, or Windows (Git Bash on Windows is supported directly; WSL works too)
 
 The plugin shells out to `codex exec` and uses your existing Codex auth — no separate API key configuration.
 
@@ -119,6 +120,13 @@ Every `codex exec` call is launched with `-c model_verbosity=low`, and the promp
 ## Execution discipline
 
 The prompt template also forbids Codex from running steps the orchestrator handles itself: no `git status` / `git diff` / `git log` (the orchestrator reviews via diff anyway), no formatter runs (`gofmt`, `prettier`, `black`, etc. — the orchestrator runs them after review), and tests at most once instead of after every fix. Codex is also told to stop opening additional files when the relevant excerpts are already embedded in the prompt. This stops Codex from repeatedly pulling its own diff and test output back into its own context, which is the dominant token leak in long-running Codex calls.
+
+## Sandbox & trust
+
+`/claudex` always invokes `codex exec --sandbox workspace-write`, but Codex only honours `workspace-write` when the project is in your trust list at `~/.codex/config.toml` (a `[projects.'<path>'] trust_level = "trusted"` entry, or the platform-equivalent form). When it isn't, Codex rejects every patch with `patch rejected: writing is blocked by read-only sandbox`. The runtime `-c projects.X.trust_level=...` override has been observed not to work reliably on Windows, so the plugin handles this in two places instead:
+
+- **`/claudex:setup`** detects whether the current project is in the trust list and offers to add it (with explicit consent — your config file is not modified silently). Once trusted, `/claudex` runs at full sandbox without any bypass flag.
+- **At runtime**, if a `codex exec` call returns the exact `patch rejected: writing is blocked by read-only sandbox` error, `/claudex` retries that call once with `--dangerously-bypass-approvals-and-sandbox` and surfaces a notice in the final report. The retry only fires on that specific error string — other failures are surfaced as-is. The bypass flag is documented on `codex exec --help` for Codex CLI ≥ 0.128 and is the current replacement for the old `--full-auto` preset (which never existed on `codex exec`).
 
 ## Reasoning effort
 

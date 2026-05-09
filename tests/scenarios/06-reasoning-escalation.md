@@ -35,7 +35,7 @@ grep -E '^[[:space:]]*model_reasoning_effort[[:space:]]*=' \
 - Phase 1: subtask classified as `standard`.
 - Phase 3 Bash call **must not** contain `-c model_reasoning_effort=`. It looks roughly like:
   ```bash
-  codex exec --sandbox workspace-write --cd tests/sandboxes/06-reasoning - < /tmp/claudex-prompts/<slug>-<id>.md
+  codex exec --sandbox workspace-write --cd tests/sandboxes/06-reasoning - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md
   ```
   (Prompt comes from a file via stdin, never inline.)
 
@@ -54,7 +54,7 @@ now in tests/sandboxes/06-reasoning/, design and implement a small in-memory LRU
 - Phase 3 — depends on what the peek found:
   - **Default is `low`, `medium`, missing, or unreadable** → Bash call **must** contain `-c model_reasoning_effort=high`:
     ```bash
-    codex exec --sandbox workspace-write -c model_reasoning_effort=high --cd tests/sandboxes/06-reasoning - < /tmp/claudex-prompts/<slug>-<id>.md
+    codex exec --sandbox workspace-write -c model_reasoning_effort=high --cd tests/sandboxes/06-reasoning - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md
     ```
   - **Default is already `high` or `xhigh`** → Bash call **must not** contain `-c model_reasoning_effort=` at all. Adding `high` would either be a no-op or, against `xhigh`, would actually lower reasoning.
 
