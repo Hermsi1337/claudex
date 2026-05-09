@@ -1,0 +1,78 @@
+# 11 — Sandbox-rejection runtime fallback
+
+## Goal
+
+Verify Phase 3's runtime fallback for Codex' `patch rejected: writing is blocked by read-only sandbox` error: when a `codex exec` call fails with that exact error string (because the project isn't in `~/.codex/config.toml`'s trust list), the orchestrator retries the **same** call once with `--dangerously-bypass-approvals-and-sandbox` and surfaces a prominent notice in the Phase 5 report telling the user to run `/claudex:setup` to fix it permanently.
+
+## Setup
+
+This scenario requires the current project to be **not trusted** by Codex. Either (a) run it on a machine where `~/.codex/config.toml` doesn't have a `[projects.'<this-repo-path>']` entry, or (b) temporarily remove the entry for the test:
+
+```bash
+# Optional: stash the existing trust entry for this project.
+config_path="${CODEX_HOME:-$HOME/.codex}/config.toml"
+cp "$config_path" "$config_path.bak"
+
+# Remove any existing trust entry for the current project. Path format depends on platform —
+# on Windows native it's lowercase backslash; on Mac/Linux it's the absolute path forward-slash.
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    project_path="$(cygpath -w "$(pwd)" 2>/dev/null | tr '[:upper:]' '[:lower:]')" ;;
+  *)
+    project_path="$(pwd)" ;;
+esac
+echo "current project: $project_path"
+# Manually delete the matching [projects.'<project_path>'] block from "$config_path" before running.
+
+rm -rf tests/sandboxes/11-bypass
+mkdir -p tests/sandboxes/11-bypass
+```
+
+## Invocation
+
+```
+/claudex In tests/sandboxes/11-bypass/, create a file marker.txt containing the single line: bypass fallback fired. Do not modify anything outside tests/sandboxes/11-bypass/.
+```
+
+## Expected behaviour
+
+- **First Codex call** runs with `--sandbox workspace-write` (no bypass flag). On an untrusted project, Codex fails with `patch rejected: writing is blocked by read-only sandbox; rejected by user approval settings` and does not write `marker.txt`.
+- The orchestrator detects the substring `patch rejected: writing is blocked by read-only sandbox` in the captured output and **retries the same `codex exec` call once**, this time with `--dangerously-bypass-approvals-and-sandbox` appended. The prompt file is reused (no new prompt written).
+- The retry succeeds and `marker.txt` is created.
+- **Phase 5 report** includes a prominent notice along the lines of:
+  > Codex sandbox rejected writes for this subtask. Retried with `--dangerously-bypass-approvals-and-sandbox`. Run `/claudex:setup` to permanently trust this project so future runs don't need the bypass.
+
+  This must appear in the report, not be silently swallowed.
+- The orchestrator does **not** keep adding the bypass flag for unrelated future subtasks proactively — only the actual sandbox-rejection trigger fires the retry.
+
+## Verify
+
+```bash
+# 1. Functional check: the file exists despite the initial sandbox rejection.
+cat tests/sandboxes/11-bypass/marker.txt
+# expected: bypass fallback fired
+
+# 2. The orchestrator's report must mention the bypass and recommend /claudex:setup.
+#    (Read the assistant's Phase 5 report in the Claude Code transcript and confirm.)
+
+# 3. Nothing outside the sandbox should have changed.
+git status --porcelain -- ':(exclude)tests/sandboxes/'
+# expected: empty
+```
+
+## Failure modes to watch for
+
+- The first call fails with the sandbox-rejection error and the orchestrator does **not** retry → the fallback isn't wired up. Check Phase 3 "Sandbox trust handling" in [claudex.md](../../plugins/claudex/commands/claudex.md).
+- The orchestrator retries on **any** Codex failure, not just sandbox rejection → the fallback is too eager and is masking real bugs. The retry must only fire on the exact `patch rejected: writing is blocked by read-only sandbox` substring.
+- The Phase 5 report doesn't mention the bypass → the user has no idea their call ran with sandboxing disabled. Required notice missing — flag as a regression even if the diff is correct.
+- The orchestrator preemptively adds `--dangerously-bypass-approvals-and-sandbox` to every Codex call from the start → wrong direction, that defeats the sandbox unconditionally instead of using it as a documented fallback.
+
+## Cleanup
+
+```bash
+rm -rf tests/sandboxes/11-bypass
+
+# Restore the trust list if you stashed it during Setup.
+config_path="${CODEX_HOME:-$HOME/.codex}/config.toml"
+[ -f "$config_path.bak" ] && mv "$config_path.bak" "$config_path"
+```

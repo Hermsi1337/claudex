@@ -22,6 +22,7 @@ Trivial mechanical edits (rename a symbol with a known target, version bump, mis
 ## Requirements
 
 - OpenAI Codex CLI: `npm install -g @openai/codex`, then `codex login`.
-- Claude Code on macOS or Linux (Windows via WSL).
+- Claude Code on macOS, Linux, or Windows (Git Bash is supported directly; WSL works too).
+- The current project should be in your Codex trust list (`~/.codex/config.toml` → `[projects.'<path>'] trust_level = "trusted"`). `/claudex:setup` checks for this and offers to add it. Without trust, `/claudex` falls back at runtime to `--dangerously-bypass-approvals-and-sandbox` for the affected call — works, but defeats the sandbox until you trust the project properly.
 
 The plugin uses your local Codex auth via subprocess — no API keys configured in the plugin.
