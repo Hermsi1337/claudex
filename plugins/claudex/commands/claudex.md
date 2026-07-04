@@ -43,6 +43,11 @@ Split the task into subtasks. For each one, classify:
 
 If the entire task fits the trivial-code exception above, skip splitting and apply the change yourself directly without invoking Codex at all.
 
+**Multi-repo tasks.** When the task spans more than one repository or independent working tree ("apply this change in repos A, B, and C"), decompose per repo — each repo gets its own Codex subtask(s), executed with `--cd <absolute-repo-path>` (Phase 3). Two hard rules:
+
+1. The trivial-code exception is **disabled** the moment more than one repo is involved. The same mechanical edit repeated across N repos is exactly the "mechanical edits across many files" case that belongs to Codex — even when each repo's individual change would pass the trivial filter on its own.
+2. Never apply edits to a foreign repo (any repo other than the directory `/claudex` was invoked from) yourself with Edit/Write. `--cd` reaches any absolute path — "the repo is outside my working directory" is never a reason to keep the work in Claude.
+
 For each Codex subtask, list which files it will likely touch. **Two subtasks that overlap on any file must run sequentially — never in parallel.** When in doubt about disjointness, sequential.
 
 Also tag each Codex subtask with a complexity level — this drives the Codex reasoning override in Phase 3:
@@ -63,6 +68,7 @@ Before delegating anything, collect what Codex needs to know:
 - Run `git status` and `git diff` to see the current working tree state.
 - Locate relevant files via Glob/Grep based on the task.
 - If locating context would itself require broad exploration (many files, unfamiliar structure), do not spawn a Claude subagent and do not pull the tree wholesale into your own context — make it a research subtask and delegate it per Phase 3's research form. Its findings then feed the downstream implementation prompts.
+- For a foreign repo (any repo other than the one `/claudex` was invoked from), never read its tree wholesale into your own context. Gather what the implementation prompt needs via a read-only research call with `--cd <repo>` — and since you won't read the foreign repo yourself, have that research call also report the conventions the implementation prompt must carry (comment policy, test framework, naming). Codex auto-reads the repo's `AGENTS.md` when running there, so committed conventions ride along on the implementation call anyway. Spot-read individual foreign files only to verify research findings before embedding them.
 - Read project conventions:
   - `CLAUDE.md`, `AGENTS.md`, `.codex/config.toml` if present (top-level **and** any nested ones near the affected paths)
   - Note any inline-comment policy. **Default if nothing is specified: write self-explanatory code with no inline comments.** State this default explicitly in the prompt you pass to Codex.
@@ -117,7 +123,7 @@ Flag rationale (Codex CLI ≥ 0.128):
 
 - `--sandbox workspace-write` — let Codex write inside its workspace. `codex exec` is non-interactive and has no approval prompts (unlike interactive `codex`), so no `--ask-for-approval` flag applies. The legacy `--full-auto` preset is **not** available on `codex exec` in current versions — do not use it. **Caveat:** if the project isn't in the user's Codex trust list, `workspace-write` effectively falls back to read-only and patches are rejected. See "Sandbox trust handling" below for how this is detected and recovered.
 - `--model <name>` — only when the user passed `--model` to `/claudex`. Otherwise omit so Codex' own (newest) default is used.
-- `--cd <dir>` — pass this when the user's task pins the work to a specific subdirectory (e.g. "inside `tests/sandboxes/01-trivial/`"). It restricts Codex' workspace to that dir, so `workspace-write` cannot reach files outside it. Without `--cd`, Codex' workspace is whatever directory `/claudex` was invoked from. Create the target dir first if it doesn't exist.
+- `--cd <dir>` — pass this when the user's task pins the work to a specific subdirectory (e.g. "inside `tests/sandboxes/01-trivial/`"). It restricts Codex' workspace to that dir, so `workspace-write` cannot reach files outside it. Without `--cd`, Codex' workspace is whatever directory `/claudex` was invoked from. Create the target dir first if it doesn't exist. `--cd` accepts **any absolute path**, including directories outside the one `/claudex` was invoked from — this is how multi-repo subtasks reach their repos: one `codex exec` call per repo, each with its own `--cd <absolute-repo-path>`. Between parallel multi-repo jobs it doubles as the hard isolation wall: a job that goes off-script can at worst damage its own repo.
 - `-c model_verbosity=low` — set on **every** Codex call, unconditionally. Claude reviews Codex' work via `git diff`, not via Codex' assistant prose, so verbose narration is pure token waste. `low` keeps the actually-useful parts (final short summary, error strings, code blocks Codex chose to show) and trims preamble/recap/filler. This overrides whatever `model_verbosity` the user has in `~/.codex/config.toml` for the duration of the call. There is no user-facing flag to opt out yet — if that ever becomes a real need, add a `--verbose` override; do not silently make this default-off.
 - `-c model_reasoning_effort=<level>` — decided in this priority order:
   1. **User passed `--effort <level>`** → pass exactly that level for every Codex subtask in this call. The user override wins over auto-classification, including the `low` direction and `xhigh`.
@@ -141,12 +147,14 @@ The runtime `-c projects.X.trust_level="trusted"` config override does **not** r
 
 When the fallback fires, record it. In Phase 5 the report must include a **prominent** notice along these lines: "Codex sandbox rejected writes for `<subtask>`. Retried with `--dangerously-bypass-approvals-and-sandbox`. Run `/claudex:setup` to permanently trust this project so future runs don't need the bypass." Do not bury this — the user should know they ran with sandboxing disabled, even if the result is correct.
 
+Trust is **per repo**. On multi-repo tasks each target repo needs its own trust-list entry, so the fallback can fire independently per repo — the Phase 5 notice must name the repo it fired for and recommend `/claudex:setup <that-repo-path>` for it.
+
 If the bypass retry **also** fails (or fails for a different reason), do not retry again. Stop, surface the exact failing command and Codex' output in the report, and tell the user to run `/claudex:setup`.
 
 The Codex prompt content must include:
 
 1. **Task scope** — exactly what to do.
-2. **Files in scope** — explicit list of files Codex may modify. Tell Codex not to touch anything else.
+2. **Files in scope** — explicit list of files Codex may modify. Tell Codex not to touch anything else. For multi-repo subtasks the list covers only that subtask's repo, with paths relative to its `--cd` repo root.
 3. **Project conventions** — comment style, test framework, lint rules you found in Phase 2.
 4. **Acceptance criteria** — what "done" looks like for this subtask, including whether tests must pass.
 5. **Hand-off back to Claude** — tell Codex explicitly:
@@ -184,6 +192,7 @@ Before embedding research findings into an implementation prompt, spot-check one
 - **File-disjoint Codex subtasks → parallel.** Launch each as a separate Bash call with `run_in_background: true`. While they run, do your own doc subtasks (Edit/Write).
 - **Subtasks sharing any file → sequential.** Wait for one to finish before starting the next.
 - **Research subtasks** only read, so they never conflict with each other — run independent research calls in parallel freely. But a research job must finish before any code subtask that consumes its findings launches, and don't run research in parallel with a code subtask that is modifying the very files being researched — the findings would be stale on arrival.
+- **Per-repo subtasks of a multi-repo task are file-disjoint by definition** — run them in parallel unless the task itself chains them (e.g. repo B consumes an artefact produced in repo A).
 - When in doubt, sequential.
 
 The Bash tool supports multiple parallel calls in one response — issue all background launches in a single tool batch.
@@ -198,9 +207,9 @@ If a Codex job's exit code is non-zero, or its output shows it visibly aborted (
 
 When all Codex jobs are done **and** all your own doc subtasks are done:
 
-1. Run `git status` and `git diff` to see the combined change set.
+1. Run `git status` and `git diff` to see the combined change set. On multi-repo tasks run this per repo — `git -C <repo> status` / `git -C <repo> diff` — the invocation directory's git doesn't see foreign repos.
 2. For each file Codex modified, read it and check:
-   - **Scope:** Did Codex stay inside the assigned files? Flag any unexpected edits or deletions.
+   - **Scope:** Did Codex stay inside the assigned files? Flag any unexpected edits or deletions. On multi-repo tasks, check each repo's diff against exactly the files-in-scope list that repo's prompt carried.
    - **Completeness:** Is the implementation finished, or are there `TODO`/`FIXME`/`pass`/early-return stubs?
    - **Edge cases:** What did the prompt ask for that the diff doesn't actually cover?
    - **Style:** Matches surrounding code and the conventions from Phase 2.
@@ -236,7 +245,7 @@ Output a single structured message:
 <commit / iterate on <issue> / revert because <reason>>
 ```
 
-Be terse. The user reads the diff themselves; your review notes should call out things the diff alone doesn't reveal. Omit the **Notices** section entirely when there's nothing to surface — but always include it when the sandbox bypass-fallback fired or any other out-of-band recovery happened during the call. The user needs to see that.
+Be terse. The user reads the diff themselves; your review notes should call out things the diff alone doesn't reveal. On multi-repo tasks, group the **Delegated to Codex** and **Review notes** entries per repo and prefix them with the repo path — and remember the diff hint applies per repo (`git -C <repo> diff`). Omit the **Notices** section entirely when there's nothing to surface — but always include it when the sandbox bypass-fallback fired or any other out-of-band recovery happened during the call. The user needs to see that.
 
 ## Subsequent requests in this conversation (sticky mode)
 
@@ -273,3 +282,5 @@ If you're unsure whether a request is task-shaped or conversational, ask one cla
 - Tempted to spawn a Claude subagent (Explore, general-purpose, Plan) for a broad codebase search → don't, ever, in claudex mode. That work is either an inline Glob/Grep/Read lookup or a Codex read-only research subtask. Claude subagents are the expensive path this command exists to avoid.
 - Research findings cite a `path:line` that doesn't exist → treat every finding from that call as suspect. Re-verify with Grep/Read before use and never embed unverified claims into an implementation prompt.
 - A read-only research call emits `patch rejected: writing is blocked by read-only sandbox` or visibly attempts writes → do **not** apply the bypass fallback (it is reserved for `workspace-write` subtasks). Surface it in the report — a research prompt that makes Codex try to write is a prompt bug.
+- The task names a repo outside the invocation directory and you keep those edits in Claude because "Codex can't reach it" → wrong. `--cd` takes any absolute path; out-of-tree repos are delegated like any other, one call per repo.
+- A multi-repo task collapses into N "trivial" Claude edits → the trivial-code exception is disabled for multi-repo tasks. Repeated mechanical edits across repos are Codex work; delegate per repo.
