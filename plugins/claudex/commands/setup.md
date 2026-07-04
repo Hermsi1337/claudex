@@ -1,10 +1,14 @@
 ---
 description: Verify the local Codex CLI is installed and authenticated for use by /claudex.
-argument-hint: ""
+argument-hint: "[dir]"
 allowed-tools: Bash, AskUserQuestion
 ---
 
 Check that the local Codex CLI is ready for `/claudex` to call.
+
+## Argument parsing
+
+`$ARGUMENTS` may contain one optional directory path. If present, Step 4 checks (and, on consent, trusts) **that** directory instead of the current working directory — useful before multi-repo `/claudex` tasks, where every target repo needs its own trust entry. Verify the directory exists first (`test -d`); if it doesn't, report that and stop. If `$ARGUMENTS` is empty, Step 4 targets the current working directory as before. Steps 1–3 are unaffected by the argument.
 
 ## Step 1 — Detect Codex CLI
 
@@ -48,11 +52,11 @@ codex login status
 - If logged in → all good. Report Codex version + auth status and continue to Step 4.
 - If not logged in → tell the user to run `codex login` themselves in a terminal (do **not** invoke `codex login` from here — it opens an interactive browser flow that does not work inside Claude Code). Stop and wait for them to confirm before they retry `/claudex`.
 
-## Step 4 — Check project trust (current working directory)
+## Step 4 — Check project trust (target directory)
 
-On macOS/Linux, Codex' `--sandbox workspace-write` only actually permits writes when the current project is in the user's trust list at `~/.codex/config.toml` (`[projects."<path>"] trust_level = "trusted"`). Without it, every patch is rejected with `patch rejected: writing is blocked by read-only sandbox`, and `/claudex` ends up forced onto the `--dangerously-bypass-approvals-and-sandbox` runtime fallback — correct, but with sandboxing fully off. Setting the trust entry once removes the need.
+On macOS/Linux, Codex' `--sandbox workspace-write` only actually permits writes when the target project (the optional directory argument, or the current working directory) is in the user's trust list at `~/.codex/config.toml` (`[projects."<path>"] trust_level = "trusted"`). Without it, every patch is rejected with `patch rejected: writing is blocked by read-only sandbox`, and `/claudex` ends up forced onto the `--dangerously-bypass-approvals-and-sandbox` runtime fallback — correct, but with sandboxing fully off. Setting the trust entry once removes the need.
 
-**On native Windows this whole step is moot.** With Codex CLI 0.128, `--sandbox workspace-write` degrades to read-only unconditionally (the session header reports `sandbox: read-only`) — trust-list entries do **not** enable writes, in any TOML path form. `/claudex` therefore runs every write-capable Codex call with `--dangerously-bypass-approvals-and-sandbox` on Windows as the expected steady state.
+**On native Windows this whole step is moot.** With Codex CLI 0.128, `--sandbox workspace-write` degrades to read-only unconditionally (the session header reports `sandbox: read-only`) — trust-list entries do **not** enable writes, in any TOML path form. `/claudex` therefore runs every write-capable Codex call with `--dangerously-bypass-approvals-and-sandbox` on Windows as the expected steady state. This applies regardless of the directory argument — a trust entry is dead config for every repo on Windows.
 
 ### 4.0 Platform gate
 
@@ -63,7 +67,7 @@ case "$(uname -s 2>/dev/null)" in
 esac
 ```
 
-- **`PLATFORM=windows`** → skip 4.1 and 4.2 entirely (do not offer to add a trust entry — it has no effect). Go to Step 5 and report the Windows steady state there.
+- **`PLATFORM=windows`** → skip 4.1 and 4.2 entirely (do not offer to add a trust entry — it has no effect, no matter which directory was targeted). Go to Step 5 and report the Windows steady state there.
 - **`PLATFORM=unix`** → continue with 4.1.
 
 ### 4.1 Detect & check (single Bash call)
@@ -71,6 +75,9 @@ esac
 Run the entire detection + grep in **one** Bash invocation so the shell variables survive between the steps. The block prints a structured trailer that the orchestrator parses to decide what to do next:
 
 ```bash
+# When /claudex:setup got a directory argument, substitute it here; otherwise drop the cd line.
+cd "<target-dir>" || { echo "TRUST_RESULT=unknown reason=target_dir_missing"; exit 0; }
+
 config_path="${CODEX_HOME:-$HOME/.codex}/config.toml"
 project_path="$(pwd)"
 
@@ -104,7 +111,7 @@ Parse the trailing `TRUST_RESULT=...` line:
 
 When the result is `untrusted`, ask exactly once with `AskUserQuestion`:
 
-- Question: "The current project (`<project_path from the trailer>`) isn't in your Codex trust list. Without it, `/claudex` will hit Codex' read-only sandbox and fall back to `--dangerously-bypass-approvals-and-sandbox` on every call. Add it to `~/.codex/config.toml` now?"
+- Question: "The target project (`<project_path from the trailer>`) isn't in your Codex trust list. Without it, `/claudex` will hit Codex' read-only sandbox and fall back to `--dangerously-bypass-approvals-and-sandbox` on every call. Add it to `~/.codex/config.toml` now?"
 - Options:
   - `Add to trust list (recommended)`
   - `Skip — I'll handle trust myself`
@@ -114,6 +121,9 @@ If the user picks **skip**, note in the Step 5 summary that the project is untru
 If the user picks **add**, append the entry in **one** Bash call. Re-derive `config_path` and `project_path` inside this call (do not trust the previous shell's variables — they are gone). The block also re-checks that no entry exists, so a second `/claudex:setup` run after the first one took effect is safe and idempotent:
 
 ```bash
+# Same rule as 4.1: substitute the directory argument if one was given; otherwise drop the cd line.
+cd "<target-dir>" || { echo "TARGET_DIR_MISSING — no change written"; exit 0; }
+
 config_path="${CODEX_HOME:-$HOME/.codex}/config.toml"
 project_path="$(pwd)"
 
@@ -149,6 +159,8 @@ auth:             <logged in as <account> | not logged in | unknown>
 project trusted:  <yes | no — using --dangerously-bypass-approvals-and-sandbox fallback | n/a on native Windows — sandbox unavailable, /claudex always uses --dangerously-bypass-approvals-and-sandbox | unknown>
 ready for /claudex: <yes/no>
 ```
+
+When a directory argument was given, name it on the `project trusted:` line so it's unambiguous which repo was checked.
 
 On native Windows, spell the situation out in one extra sentence below the block: Codex' sandbox is unavailable there (workspace-write degrades to read-only regardless of trust entries), so every write-capable `/claudex` Codex call runs with `--dangerously-bypass-approvals-and-sandbox`. The user should know this is by necessity, not an accident.
 

@@ -1,7 +1,7 @@
 {
   "name": "claudex",
   "version": "0.1.0",
-  "description": "Orchestrate implementation work via OpenAI Codex from inside Claude Code: Claude decomposes the task, delegates code subtasks to Codex, handles docs itself, and reviews the resulting diff.",
+  "description": "Orchestrate implementation work via OpenAI Codex from inside Claude Code: Claude decomposes the task, delegates code and research subtasks to Codex, handles docs itself, and reviews the resulting diff.",
   "author": {
     "name": "Hermsi1337"
   },

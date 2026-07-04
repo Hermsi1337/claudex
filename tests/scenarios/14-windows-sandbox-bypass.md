@@ -1,4 +1,4 @@
-# 12 — Native Windows: preemptive sandbox bypass (Windows only)
+# 14 — Native Windows: preemptive sandbox bypass (Windows only)
 
 ## Goal
 
@@ -9,8 +9,8 @@ Verify Phase 3's native-Windows rule: because Codex CLI 0.128 degrades `--sandbo
 ## Setup
 
 ```bash
-rm -rf tests/sandboxes/12-winbypass
-mkdir -p tests/sandboxes/12-winbypass
+rm -rf tests/sandboxes/14-winbypass
+mkdir -p tests/sandboxes/14-winbypass
 ```
 
 No trust-list preparation is needed — the whole point is that trust entries are irrelevant on native Windows. Run with or without a `[projects...]` entry for this repo; the expected behaviour is identical.
@@ -18,7 +18,7 @@ No trust-list preparation is needed — the whole point is that trust entries ar
 ## Invocation
 
 ```
-/claudex In tests/sandboxes/12-winbypass/, create a file marker.txt containing the single line: windows bypass steady state. Do not modify anything outside tests/sandboxes/12-winbypass/.
+/claudex In tests/sandboxes/14-winbypass/, create a file marker.txt containing the single line: windows bypass steady state. Do not modify anything outside tests/sandboxes/14-winbypass/.
 ```
 
 ## Expected behaviour
@@ -27,7 +27,7 @@ No trust-list preparation is needed — the whole point is that trust entries ar
 - **Exactly one `codex exec` call** for the subtask, and it includes `--dangerously-bypass-approvals-and-sandbox` from the start:
 
   ```
-  codex exec --sandbox workspace-write --cd tests/sandboxes/12-winbypass -c model_verbosity=low --dangerously-bypass-approvals-and-sandbox - < <resolved-call-dir>/<slug>-<id>.md
+  codex exec --sandbox workspace-write --cd tests/sandboxes/14-winbypass -c model_verbosity=low --dangerously-bypass-approvals-and-sandbox - < <resolved-call-dir>/<slug>-<id>.md
   ```
 
   Inspect the transcript: there must be **no** initial sandboxed attempt that fails with `patch rejected: writing is blocked by read-only sandbox` followed by a retry. One call, flag present, done.
@@ -41,7 +41,7 @@ No trust-list preparation is needed — the whole point is that trust entries ar
 
 ```bash
 # 1. Functional check.
-cat tests/sandboxes/12-winbypass/marker.txt
+cat tests/sandboxes/14-winbypass/marker.txt
 # expected: windows bypass steady state
 
 # 2. Transcript check: exactly one codex exec call for the subtask, bypass flag present
@@ -65,5 +65,5 @@ git status --porcelain -- ':(exclude)tests/sandboxes/'
 ## Cleanup
 
 ```bash
-rm -rf tests/sandboxes/12-winbypass
+rm -rf tests/sandboxes/14-winbypass
 ```

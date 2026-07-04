@@ -6,9 +6,10 @@ The idea: Claude is great at conceptual work, decomposition and review. Codex is
 
 1. Splits the task into subtasks.
 2. Delegates code-changing subtasks to Codex (in parallel where it's safe).
-3. Handles documentation/conceptual subtasks itself.
-4. Reviews Codex' diff.
-5. Reports back with what changed and what to do next.
+3. Delegates broad codebase research to Codex in read-only mode — instead of spawning expensive Claude subagents.
+4. Handles documentation/conceptual subtasks itself.
+5. Reviews Codex' diff.
+6. Reports back with what changed and what to do next.
 
 Inspired by [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc), but with the inverse flow: that plugin uses Codex primarily for code review and bug rescue. `claudex` is **Claude → Codex**, not the other way around.
 
@@ -63,6 +64,16 @@ Claude splits this into subtasks, identifies file overlaps, and runs them with t
 
 Then Claude reviews everything Codex produced and reports back.
 
+### Multi-repo case
+
+```
+/claudex bump the healthcheck timeout to 10s in D:/repos/service-a, D:/repos/service-b and D:/repos/service-c
+```
+
+Each repo becomes its own Codex subtask, invoked with `--cd <repo>` — which works for any absolute path, so the repos don't have to live under the directory you started Claude Code in. Different repos never share files, so the per-repo jobs run in parallel. Claude never edits foreign repos itself, and the trivial-edit shortcut is disabled for multi-repo tasks — repeated mechanical edits across repos always go to Codex. Context in a foreign repo is gathered via a read-only research run instead of Claude reading the repo, and review happens per repo (`git -C <repo> diff`).
+
+On macOS/Linux, each target repo needs its own entry in your Codex trust list: run `/claudex:setup <repo-path>` once per repo, or accept the per-repo sandbox-bypass fallback (with a notice naming the repo) until you do. On native Windows the trust list is irrelevant — every write-capable call runs with the preemptive bypass anyway (see "Sandbox & trust" below).
+
 ### Override the model
 
 ```
@@ -103,12 +114,15 @@ Questions about the diff or the codebase don't trigger a Codex run; only sentenc
 | Refactoring | Codex |
 | Writing tests | Codex |
 | Mechanical edits across many files | Codex |
+| The same change repeated across multiple repos | Codex (one call per repo, in parallel) |
+| Broad codebase research (map a subsystem, find all implementations of a pattern, trace data flow) | Codex (read-only) |
 | Trivial single-edit changes (rename with known target, version bump, missing import, typo fix) | Claude |
+| Quick lookups (a targeted grep or two, reading ≤2 known files) | Claude |
 | READMEs, ADRs, design notes | Claude |
 | Commit messages, PR descriptions | Claude |
 | Architectural decisions | Claude |
 
-A code subtask is treated as "trivial" only if the change is fully specified, fits in ≤2 files, needs no test/build loop, and Claude wouldn't have to read more than ~2 files to write the diff. When in doubt → Codex.
+A code subtask is treated as "trivial" only if the change is fully specified, fits in ≤2 files, needs no test/build loop, and Claude wouldn't have to read more than ~2 files to write the diff. When in doubt → Codex. The trivial shortcut is **off** entirely for tasks spanning more than one repo — N small edits across N repos are Codex work, one `--cd <repo>` call each.
 
 ## Inline-comment policy
 
@@ -122,13 +136,21 @@ Every `codex exec` call is launched with `-c model_verbosity=low`, and the promp
 
 The prompt template also forbids Codex from running steps the orchestrator handles itself: no `git status` / `git diff` / `git log` (the orchestrator reviews via diff anyway), no formatter runs (`gofmt`, `prettier`, `black`, etc. — the orchestrator runs them after review), and tests at most once instead of after every fix. Codex is also told to stop opening additional files when the relevant excerpts are already embedded in the prompt. This stops Codex from repeatedly pulling its own diff and test output back into its own context, which is the dominant token leak in long-running Codex calls.
 
+## Research delegation (no Claude subagents)
+
+Broad codebase exploration — mapping how a subsystem works, finding every implementation of a pattern, tracing data flow — is delegated to Codex as a **read-only research run** (`codex exec --sandbox read-only`). Claude never spawns its own subagents in claudex mode: they run on Claude tokens, which is exactly the cost this plugin exists to avoid. Quick lookups (a targeted grep or two) Claude does inline; everything broader goes to Codex.
+
+Research runs get a curated prompt so Codex doesn't explore cold: what the answer will be used for, a compact repo-structure snapshot with explicit ignore-scopes, seed `path:line` candidates from a quick grep Claude runs first, a strict findings format (`path:line — one-line answer` plus an "Open questions" section), and — on follow-up research in the same task — the condensed findings of earlier runs. Claude spot-checks cited locations before embedding findings into implementation prompts.
+
+Read-only research needs no project-trust entry, never uses the sandbox bypass, and always runs at your configured default reasoning effort (`--effort` still overrides).
+
 ## Sandbox & trust
 
 `/claudex` invokes `codex exec --sandbox workspace-write` wherever the sandbox can actually work. How that plays out depends on the platform:
 
 **macOS / Linux.** Codex only honours `workspace-write` when the project is in your trust list at `~/.codex/config.toml` (a `[projects."<path>"] trust_level = "trusted"` entry). When it isn't, Codex rejects every patch with `patch rejected: writing is blocked by read-only sandbox`. The runtime `-c projects.X.trust_level=...` override has been observed not to work reliably, so the plugin handles this in two places instead:
 
-- **`/claudex:setup`** detects whether the current project is in the trust list and offers to add it (with explicit consent — your config file is not modified silently). Once trusted, `/claudex` runs at full sandbox without any bypass flag.
+- **`/claudex:setup [dir]`** detects whether the target project (the optional directory argument, or the current one) is in the trust list and offers to add it (with explicit consent — your config file is not modified silently). Once trusted, `/claudex` runs at full sandbox without any bypass flag. Trust is per repo — before a multi-repo task, run it once per target repo.
 - **At runtime**, if a `codex exec` call returns the exact `patch rejected: writing is blocked by read-only sandbox` error, `/claudex` retries that call once with `--dangerously-bypass-approvals-and-sandbox` and surfaces a notice in the final report. The retry only fires on that specific error string — other failures are surfaced as-is. The bypass flag is documented on `codex exec --help` for Codex CLI ≥ 0.128 and is the current replacement for the old `--full-auto` preset (which never existed on `codex exec`).
 
 **Native Windows.** On Codex CLI 0.128, `--sandbox workspace-write` always degrades to read-only (the session header reports `sandbox: read-only`) and every patch is rejected — **trust-list entries do not change this**, in any TOML path form. A sandboxed first attempt would be a guaranteed wasted round-trip, so `/claudex` detects native Windows and adds `--dangerously-bypass-approvals-and-sandbox` to every write-capable Codex call from the start. Each report carries a notice that the call ran without sandboxing — this is the expected steady state on Windows, not an error, and `/claudex:setup` accordingly skips the trust-list flow there. If a future Codex version makes the sandbox work on Windows, this special-casing should be removed.
@@ -159,7 +181,7 @@ If Claude misjudges disjointness and two parallel jobs touch the same file, the 
 - `/claudex <task>` — orchestrate + delegate + review.
   - `--model <name>` — override Codex' default model for this call.
   - `--effort <low|medium|high|xhigh>` — force a Codex reasoning level for this call (bypasses auto-classification).
-- `/claudex:setup` — verify Codex CLI is installed and authenticated.
+- `/claudex:setup [dir]` — verify Codex CLI is installed and authenticated; with `[dir]`, check/trust that directory instead of the current one (useful before multi-repo tasks).
 
 ## Not in this version
 

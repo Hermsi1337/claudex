@@ -9,7 +9,7 @@ For full docs, see the [repository README](https://github.com/Hermsi1337/claudex
 - `/claudex <task>` — decompose, delegate code work to Codex, do docs in Claude, then review.
   - `--model <name>` — override Codex' model for this call. Without it, Codex' own default is used.
   - `--effort <low|medium|high|xhigh>` — force a Codex reasoning level for this call (bypasses auto-classification).
-- `/claudex:setup` — verify the local `codex` CLI is installed and authenticated.
+- `/claudex:setup [dir]` — verify the local `codex` CLI is installed and authenticated; with a directory argument it checks/adds the Codex trust entry for that repo instead of the current one (handy before multi-repo tasks).
 
 After the first `/claudex` in a conversation, task-shaped follow-ups are routed through the same workflow automatically (sticky mode). Questions about the diff or codebase still get answered directly without delegating.
 
@@ -18,6 +18,10 @@ Without `--effort`, complex subtasks are auto-escalated to `-c model_reasoning_e
 Every Codex call is also launched with `-c model_verbosity=low` and a prompt rule that tells Codex to skip preamble/recap and produce a ≤5-bullet final summary. Claude reviews via `git diff`, so verbose Codex prose would be wasted tokens. The prompt also forbids Codex from running git inspection (`status`/`diff`/`log`), formatters, and repeated test runs — those steps belong to the orchestrator, and running them inside Codex pulls their output back into Codex' own context for no benefit. No flag to opt out yet.
 
 Trivial mechanical edits (rename a symbol with a known target, version bump, missing import, typo fix) are kept in Claude — no Codex round-trip when one Edit call would suffice. When in doubt the work still goes to Codex.
+
+Broad codebase research is delegated to Codex too, as read-only runs (`codex exec --sandbox read-only`) — Claude never spawns its own (expensive) subagents in claudex mode; quick lookups stay inline. Research prompts carry curated context (mission, repo layout, seed grep hits, a strict findings format, prior findings on follow-ups) so Codex doesn't explore cold. Read-only runs need no project-trust entry and never use the sandbox bypass.
+
+Tasks spanning multiple repos are decomposed per repo: one Codex call per repo via `--cd <absolute-path>` (which reaches repos outside the invocation directory), run in parallel, reviewed per repo via `git -C`. The trivial-edit shortcut is disabled for multi-repo tasks and Claude never edits foreign repos itself. On macOS/Linux, trust is per repo — `/claudex:setup <dir>` adds the entry for each target, or the bypass fallback fires per repo with a notice. On native Windows the preemptive bypass applies to every write-capable call regardless of repo.
 
 ## Requirements
 

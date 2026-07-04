@@ -4,7 +4,7 @@
 
 Verify Phase 3's runtime fallback for Codex' `patch rejected: writing is blocked by read-only sandbox` error: when a `codex exec` call fails with that exact error string (because the project isn't in `~/.codex/config.toml`'s trust list), the orchestrator retries the **same** call once with `--dangerously-bypass-approvals-and-sandbox` and surfaces a prominent notice in the Phase 5 report telling the user to run `/claudex:setup` to fix it permanently.
 
-**Platform:** macOS/Linux only. On native Windows the sandbox never permits writes (trust entries don't help on Codex 0.128) and the orchestrator is expected to skip the sandboxed first attempt entirely — that behaviour is covered by [12-windows-sandbox-bypass.md](12-windows-sandbox-bypass.md), not this scenario.
+**Platform:** macOS/Linux only. On native Windows the sandbox never permits writes (trust entries don't help on Codex 0.128) and the orchestrator is expected to skip the sandboxed first attempt entirely — that behaviour is covered by [14-windows-sandbox-bypass.md](14-windows-sandbox-bypass.md), not this scenario.
 
 ## Setup
 
@@ -60,7 +60,7 @@ git status --porcelain -- ':(exclude)tests/sandboxes/'
 - The first call fails with the sandbox-rejection error and the orchestrator does **not** retry → the fallback isn't wired up. Check Phase 3 "Sandbox trust handling" in [claudex.md](../../plugins/claudex/commands/claudex.md).
 - The orchestrator retries on **any** Codex failure, not just sandbox rejection → the fallback is too eager and is masking real bugs. The retry must only fire on the exact `patch rejected: writing is blocked by read-only sandbox` substring.
 - The Phase 5 report doesn't mention the bypass → the user has no idea their call ran with sandboxing disabled. Required notice missing — flag as a regression even if the diff is correct.
-- The orchestrator preemptively adds `--dangerously-bypass-approvals-and-sandbox` to every Codex call from the start → wrong direction **on macOS/Linux**, where the sandbox works once the project is trusted; the flag must stay a documented fallback there. (On native Windows the preemptive bypass is the expected behaviour — see scenario 12.)
+- The orchestrator preemptively adds `--dangerously-bypass-approvals-and-sandbox` to every Codex call from the start → wrong direction **on macOS/Linux**, where the sandbox works once the project is trusted; the flag must stay a documented fallback there. (On native Windows the preemptive bypass is the expected behaviour — see scenario 14.)
 
 ## Cleanup
 
