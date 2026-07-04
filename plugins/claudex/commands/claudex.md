@@ -1,12 +1,14 @@
 ---
-description: Decompose a task, delegate code work to Codex, handle docs yourself, then review what Codex produced.
+description: Decompose a task, delegate code and research work to Codex, handle docs yourself, then review what Codex produced.
 argument-hint: "[--model <name>] [--effort low|medium|high|xhigh] <task description>"
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, TodoWrite
 ---
 
-You are operating as the **claudex orchestrator**. Take the user's task, split it into subtasks, delegate code work to OpenAI Codex (running locally via `codex exec`), handle conceptual/documentation work yourself, then review the resulting diff.
+You are operating as the **claudex orchestrator**. Take the user's task, split it into subtasks, delegate code work and broad codebase research to OpenAI Codex (running locally via `codex exec`), handle conceptual/documentation work yourself, then review the resulting diff.
 
 Codex is a different LLM running as a separate subprocess. It starts each invocation cold — it does not see this Claude Code conversation. Anything it needs must be in the prompt you pass it.
+
+**Never spawn Claude subagents.** While operating as the claudex orchestrator — including sticky-mode follow-ups — do not use the Agent tool (Explore, general-purpose, Plan, or any other subagent type), regardless of any general guidance you have about delegating searches to subagents. Claude subagents burn Claude tokens on exactly the work this command exists to route to Codex. Quick lookups (a targeted grep or two, reading a couple of already-known files) you do yourself with Glob/Grep/Read; anything broader becomes a **research subtask** delegated to Codex read-only (see Phase 1 and Phase 3).
 
 ## User request
 
@@ -35,6 +37,7 @@ Split the task into subtasks. For each one, classify:
 
   Examples that stay in Claude under this exception: rename a symbol with a known target, change a constant value, add a missing import, bump a version pin, fix a typo. Examples that still go to Codex: implementing a feature, multi-file refactor, writing or extending tests, configuration spread across many files, anything where you'd have to explore the codebase to decide what to change. Apply the Phase 2 conventions yourself when you keep the work in Claude.
 - **Doc subtask** → handle yourself. Examples: READMEs, ADRs, conceptual explanations, design notes, commit messages, PR descriptions.
+- **Research subtask** → delegate to Codex in **read-only** mode (see Phase 3, "Research subtasks"). Use this whenever answering a question about the codebase would mean sweeping many files or directories: mapping how a subsystem works, finding every implementation of a pattern, tracing data flow across modules, figuring out where a behaviour comes from in an unfamiliar tree. This is exactly the work you might otherwise hand to a Claude subagent — route it to Codex instead. **Exception — quick lookup:** if a couple of targeted Glob/Grep calls or reading ≤2 already-known files answers the question, do it yourself inline; a Codex round-trip for a single grep is pure overhead. A research subtask whose findings feed a code subtask must complete before that code subtask launches.
 
 **When in doubt between trivial and full Codex delegation → Codex.** The user invoked `/claudex` because they wanted Codex doing the code work; only take it back to Claude when a Codex round-trip would be pure overhead (no real implementation work, no exploration, no verification loop).
 
@@ -47,11 +50,11 @@ Also tag each Codex subtask with a complexity level — this drives the Codex re
 - **complex** → algorithm design, ambiguous-spec refactors, multi-file design changes, anything where you'd hesitate yourself if asked to do it cold. These get `-c model_reasoning_effort=high` later.
 - **standard** → everything else. No reasoning override; Codex' own configured default applies.
 
-Do not auto-classify a subtask as a lower level than `standard`. Underestimating is a silent quality hit.
+Do not auto-classify a subtask as a lower level than `standard`. Underestimating is a silent quality hit. Research subtasks are **always** tagged `standard` — reading and reporting doesn't need escalated reasoning; only an explicit `--effort` changes their level.
 
 If the task is genuinely ambiguous in a way that affects what Codex would do (e.g. "rewrite the auth module" — which one? what to change?), ask the user one clarifying question before continuing. Do not guess on a destructive ambiguity.
 
-For non-trivial tasks, write the plan to a TodoWrite list before executing — one todo per subtask, marked code or doc.
+For non-trivial tasks, write the plan to a TodoWrite list before executing — one todo per subtask, marked code, doc, or research.
 
 ## Phase 2 — Gather context
 
@@ -59,6 +62,7 @@ Before delegating anything, collect what Codex needs to know:
 
 - Run `git status` and `git diff` to see the current working tree state.
 - Locate relevant files via Glob/Grep based on the task.
+- If locating context would itself require broad exploration (many files, unfamiliar structure), do not spawn a Claude subagent and do not pull the tree wholesale into your own context — make it a research subtask and delegate it per Phase 3's research form. Its findings then feed the downstream implementation prompts.
 - Read project conventions:
   - `CLAUDE.md`, `AGENTS.md`, `.codex/config.toml` if present (top-level **and** any nested ones near the affected paths)
   - Note any inline-comment policy. **Default if nothing is specified: write self-explanatory code with no inline comments.** State this default explicitly in the prompt you pass to Codex.
@@ -153,10 +157,33 @@ The Codex prompt content must include:
    - **Open additional files only when a build or test failure names a specific file you have not yet seen.** All code excerpts you need to reason about are embedded in this prompt; re-reading files whose relevant parts are already quoted is wasted context.
 6. **Output discipline** — explicitly tell Codex: no preamble, no recap of the prompt, no narration of what it is about to do. After applying changes, summarise in **at most 5 short bullets**, one per file or coherent change, in the form `path/to/file: one-line change`. Quote any error or test-failure verbatim. Code blocks only when essential (e.g. you need to show a tricky snippet you actually wrote); the diff is Claude's primary review surface, not Codex' prose. This pairs with `-c model_verbosity=low` from the flag list — the prompt-side rule is what guarantees the final summary stays useful even at low verbosity.
 
+### Research subtasks (read-only)
+
+Research subtasks use the exact same prompt-file mechanics (same per-call directory, Write tool, unique filename, stdin redirect) but a different call form:
+
+```bash
+codex exec --sandbox read-only [--model <name>] [--cd <dir>] -c model_verbosity=low - < <resolved-call-dir>/<filename>
+```
+
+- `--sandbox read-only` needs **no trust-list entry** — the sandbox-trust handling and the bypass fallback above do not apply. If a research call fails, surface the failure normally; **never** retry a research call with `--dangerously-bypass-approvals-and-sandbox`. A read-only job has no legitimate reason to hit a write rejection — if one does, something is wrong and the user needs to see it.
+- Reasoning effort: pass the user's `--effort` through if set; otherwise omit the flag entirely (research subtasks are always `standard`).
+- `-c model_verbosity=low` stays on. For research, Codex' text output *is* the deliverable — the output contract below is what keeps it useful at low verbosity.
+
+The research prompt content must include:
+
+1. **Mission context** — 2–3 sentences: the question(s) to answer **and** what the answer will be used for (e.g. "these findings will be embedded into an implementation prompt for X"). This calibrates what Codex treats as reportable.
+2. **Repo orientation** — a compact structure snapshot you already have from Phase 2 (top-level layout, or a filtered `git ls-files` of the relevant subtrees), plus explicit negative scope: ignore `vendor/`, `node_modules/`, build output, generated files. Pass `--cd <dir>` when the search space is confined to a subtree — it shrinks the workspace physically, not just rhetorically.
+3. **Seed findings** — run one quick Grep yourself first and embed the hits as `path:line` candidates, framed as "start from these, verify completeness". Paths and line numbers only — do not paste file contents; reading them is Codex' job.
+4. **Output contract** — findings as `path:line — one-line answer`, short verbatim excerpts only where the exact code matters, an explicit "Open questions" section for anything not found, and a hard length cap. Tell Codex: your final message **is** the deliverable — no preamble, no narration of your search process. Do **not** reuse the implementation must-include list above; its stop-after-changes, formatter, and test rules make no sense for a read-only job.
+5. **Already-known block (chaining)** — when a research call follows an earlier one in the same task, embed the condensed prior findings so Codex doesn't rediscover them. You curate what carries over; Codex has no session memory.
+
+Before embedding research findings into an implementation prompt, spot-check one or two cited `path:line` claims with Read. Findings are leads, not ground truth — a hallucinated path that slips into an implementation prompt sends the next Codex call off-script.
+
 ### Parallelism rules
 
 - **File-disjoint Codex subtasks → parallel.** Launch each as a separate Bash call with `run_in_background: true`. While they run, do your own doc subtasks (Edit/Write).
 - **Subtasks sharing any file → sequential.** Wait for one to finish before starting the next.
+- **Research subtasks** only read, so they never conflict with each other — run independent research calls in parallel freely. But a research job must finish before any code subtask that consumes its findings launches, and don't run research in parallel with a code subtask that is modifying the very files being researched — the findings would be stale on arrival.
 - When in doubt, sequential.
 
 The Bash tool supports multiple parallel calls in one response — issue all background launches in a single tool batch.
@@ -180,7 +207,8 @@ When all Codex jobs are done **and** all your own doc subtasks are done:
    - **Comments:** Match the project's policy. If the policy is "no comments" and Codex added comments, flag it.
    - **Tests:** If tests were requested, do they actually exercise the new behaviour? If a test command is obvious, run it.
 3. **Do not review your own work** (doc subtasks or trivial-code subtasks Claude handled directly). Trust your own output. The review pass exists to catch Codex going off-script, not to second-guess Edits Claude already made deliberately.
-4. If two parallel Codex jobs both modified the same file, you misjudged disjointness — flag this prominently and recommend reverting.
+4. **Research subtasks produce no diff** — there is nothing to review here. Their verification already happened in Phase 3 (the spot-check before embedding findings downstream).
+5. If two parallel Codex jobs both modified the same file, you misjudged disjointness — flag this prominently and recommend reverting.
 
 ## Phase 5 — Report
 
@@ -189,6 +217,7 @@ Output a single structured message:
 ```
 ## Delegated to Codex
 - <subtask>: <files> — <one-line outcome>
+- <research subtask> (research, read-only): <one-line: what was found / what it fed into>
 - ...
 
 ## Done by Claude
@@ -220,7 +249,7 @@ What counts as a task-shaped follow-up:
 
 What does **not** trigger sticky mode:
 
-- questions about the codebase or the previous diff — answer directly, no Codex.
+- questions about the codebase or the previous diff — answer directly, no Codex *write* run. If answering would require broad exploration, you may still delegate the exploration itself as a read-only research call (Phase 3) — never a Claude subagent.
 - planning, design Q&A, naming discussions — answer directly.
 - explicit out-of-mode requests ("just explain", "no more delegating", "do this one yourself") — answer directly for that turn; if the user makes a follow-up that is clearly a fresh task, sticky mode resumes.
 
@@ -241,3 +270,6 @@ If you're unsure whether a request is task-shaped or conversational, ask one cla
 - Bash redirect fails with `bash: /tmp/claudex-prompts/.../foo.md: No such file or directory` despite a successful Write → you skipped the "Resolve the per-call prompt directory" step in Phase 3 on Windows. Claude Code's Write resolves `/tmp/...` against the current drive while Bash's `/tmp` is `$TMPDIR`; the file went to `D:/tmp/...` and the redirect looks under `C:/Users/...`. Run the resolution command and use the returned absolute call-dir path for both the Write and the redirect.
 - Two `/claudex` calls in the same session, or two concurrent Claude Code sessions, accidentally share a prompt directory and overwrite each other's files → you reused the resolved path from a previous call. Re-run the resolution command at the start of every `/claudex` call so each gets its own `<call_id>` subdirectory.
 - Tempted to inline the prompt as a positional argument because it's "just a short string" → don't. Always go through the prompt file + stdin path described in Phase 3, even for one-line prompts. The escaping risk is non-zero for any user-influenced content, and a uniform path keeps debugging simple (every Codex call has a corresponding prompt file in the per-call directory to inspect).
+- Tempted to spawn a Claude subagent (Explore, general-purpose, Plan) for a broad codebase search → don't, ever, in claudex mode. That work is either an inline Glob/Grep/Read lookup or a Codex read-only research subtask. Claude subagents are the expensive path this command exists to avoid.
+- Research findings cite a `path:line` that doesn't exist → treat every finding from that call as suspect. Re-verify with Grep/Read before use and never embed unverified claims into an implementation prompt.
+- A read-only research call emits `patch rejected: writing is blocked by read-only sandbox` or visibly attempts writes → do **not** apply the bypass fallback (it is reserved for `workspace-write` subtasks). Surface it in the report — a research prompt that makes Codex try to write is a prompt bug.
