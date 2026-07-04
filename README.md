@@ -6,9 +6,10 @@ The idea: Claude is great at conceptual work, decomposition and review. Codex is
 
 1. Splits the task into subtasks.
 2. Delegates code-changing subtasks to Codex (in parallel where it's safe).
-3. Handles documentation/conceptual subtasks itself.
-4. Reviews Codex' diff.
-5. Reports back with what changed and what to do next.
+3. Delegates broad codebase research to Codex in read-only mode — instead of spawning expensive Claude subagents.
+4. Handles documentation/conceptual subtasks itself.
+5. Reviews Codex' diff.
+6. Reports back with what changed and what to do next.
 
 Inspired by [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc), but with the inverse flow: that plugin uses Codex primarily for code review and bug rescue. `claudex` is **Claude → Codex**, not the other way around.
 
@@ -102,7 +103,9 @@ Questions about the diff or the codebase don't trigger a Codex run; only sentenc
 | Refactoring | Codex |
 | Writing tests | Codex |
 | Mechanical edits across many files | Codex |
+| Broad codebase research (map a subsystem, find all implementations of a pattern, trace data flow) | Codex (read-only) |
 | Trivial single-edit changes (rename with known target, version bump, missing import, typo fix) | Claude |
+| Quick lookups (a targeted grep or two, reading ≤2 known files) | Claude |
 | READMEs, ADRs, design notes | Claude |
 | Commit messages, PR descriptions | Claude |
 | Architectural decisions | Claude |
@@ -120,6 +123,14 @@ Every `codex exec` call is launched with `-c model_verbosity=low`, and the promp
 ## Execution discipline
 
 The prompt template also forbids Codex from running steps the orchestrator handles itself: no `git status` / `git diff` / `git log` (the orchestrator reviews via diff anyway), no formatter runs (`gofmt`, `prettier`, `black`, etc. — the orchestrator runs them after review), and tests at most once instead of after every fix. Codex is also told to stop opening additional files when the relevant excerpts are already embedded in the prompt. This stops Codex from repeatedly pulling its own diff and test output back into its own context, which is the dominant token leak in long-running Codex calls.
+
+## Research delegation (no Claude subagents)
+
+Broad codebase exploration — mapping how a subsystem works, finding every implementation of a pattern, tracing data flow — is delegated to Codex as a **read-only research run** (`codex exec --sandbox read-only`). Claude never spawns its own subagents in claudex mode: they run on Claude tokens, which is exactly the cost this plugin exists to avoid. Quick lookups (a targeted grep or two) Claude does inline; everything broader goes to Codex.
+
+Research runs get a curated prompt so Codex doesn't explore cold: what the answer will be used for, a compact repo-structure snapshot with explicit ignore-scopes, seed `path:line` candidates from a quick grep Claude runs first, a strict findings format (`path:line — one-line answer` plus an "Open questions" section), and — on follow-up research in the same task — the condensed findings of earlier runs. Claude spot-checks cited locations before embedding findings into implementation prompts.
+
+Read-only research needs no project-trust entry, never uses the sandbox bypass, and always runs at your configured default reasoning effort (`--effort` still overrides).
 
 ## Sandbox & trust
 

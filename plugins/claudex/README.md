@@ -19,6 +19,8 @@ Every Codex call is also launched with `-c model_verbosity=low` and a prompt rul
 
 Trivial mechanical edits (rename a symbol with a known target, version bump, missing import, typo fix) are kept in Claude — no Codex round-trip when one Edit call would suffice. When in doubt the work still goes to Codex.
 
+Broad codebase research is delegated to Codex too, as read-only runs (`codex exec --sandbox read-only`) — Claude never spawns its own (expensive) subagents in claudex mode; quick lookups stay inline. Research prompts carry curated context (mission, repo layout, seed grep hits, a strict findings format, prior findings on follow-ups) so Codex doesn't explore cold. Read-only runs need no project-trust entry and never use the sandbox bypass.
+
 ## Requirements
 
 - OpenAI Codex CLI: `npm install -g @openai/codex`, then `codex login`.
