@@ -8,7 +8,7 @@ Verify the multi-repo path end to end:
 2. **Parallelism.** The two per-repo `codex exec` calls launch in parallel (`run_in_background: true` in one tool batch) — different repos are file-disjoint by definition.
 3. **Scope per repo.** Each prompt file carries a files-in-scope list covering only its own repo, with paths relative to that repo's root.
 4. **Review per repo.** Phase 4 runs `git -C <repo> status` / `git -C <repo> diff` for each repo (the sandbox repos are their own git repos — the claudex repo's git doesn't see into them), and the Phase 5 report groups entries per repo.
-5. **Trust per repo.** The freshly-created sandbox repos are (normally) not in the Codex trust list, so the bypass fallback may fire — once per affected repo, and each Phase 5 notice must name **which** repo it fired for and recommend `/claudex:setup <that-repo-path>`.
+5. **Trust per repo (macOS/Linux).** The freshly-created sandbox repos are (normally) not in the Codex trust list, so the bypass fallback may fire — once per affected repo, and each Phase 5 notice must name **which** repo it fired for and recommend `/claudex:setup <that-repo-path>`. On native Windows this expectation changes: both write-capable calls carry `--dangerously-bypass-approvals-and-sandbox` from the start with the steady-state notice instead (see scenario 14) — no rejection-then-retry pairs, no `/claudex:setup` recommendation.
 
 ## Setup
 
@@ -43,7 +43,8 @@ Note the per-repo change is deliberately tiny (2 files, fully specified, no test
   codex exec --sandbox workspace-write --cd tests/sandboxes/13-multi-repo/repo-a -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<slug-a>-<id>.md
   codex exec --sandbox workspace-write --cd tests/sandboxes/13-multi-repo/repo-b -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<slug-b>-<id>.md
   ```
-- If Codex rejects writes (`patch rejected: writing is blocked by read-only sandbox` — likely, since the sandbox repos were just created and aren't trusted), the bypass retry fires **per affected repo**, and the Phase 5 **Notices** section names each repo individually and recommends `/claudex:setup tests/sandboxes/13-multi-repo/<repo>`.
+- **macOS/Linux:** if Codex rejects writes (`patch rejected: writing is blocked by read-only sandbox` — likely, since the sandbox repos were just created and aren't trusted), the bypass retry fires **per affected repo**, and the Phase 5 **Notices** section names each repo individually and recommends `/claudex:setup tests/sandboxes/13-multi-repo/<repo>`.
+- **Native Windows:** both `codex exec` calls carry `--dangerously-bypass-approvals-and-sandbox` from the start (see scenario 14) and the Notices section states the steady state — it must **not** recommend `/claudex:setup` for either repo.
 - Phase 4 reviews each repo through its own git: `git -C tests/sandboxes/13-multi-repo/repo-a diff` etc.
 - The Phase 5 report groups **Delegated to Codex** and **Review notes** per repo, entries prefixed with the repo path.
 
@@ -89,7 +90,8 @@ In the transcript, confirm: no Edit/Write tool call touching either sandbox repo
 - One combined Codex call for both repos (single `--cd`, or none) → per-repo decomposition missing; also breaks the sandbox isolation between the repos.
 - The two calls run sequentially without a stated reason → different repos are file-disjoint by definition; sequential here means the parallelism rule regressed.
 - A prompt's files-in-scope list names the other repo's files, or uses paths relative to the claudex repo instead of the `--cd` root → scope rule regression.
-- Bypass fallback fires but the notice doesn't say which repo, or fires once "for the task" instead of per call → per-repo trust reporting regressed.
+- Bypass fallback fires but the notice doesn't say which repo, or fires once "for the task" instead of per call → per-repo trust reporting regressed (macOS/Linux).
+- On native Windows: a sandboxed first attempt followed by a rejection-then-retry pair → the platform detection didn't fire; see scenario 14.
 - Variant B: Claude edits the out-of-tree repo itself, claiming Codex can't reach it → `--cd` takes any absolute path; this is the exact failure mode the multi-repo rules exist to prevent.
 - Phase 4 runs only top-level `git status` and reports "no changes" → per-repo review (`git -C`) missing.
 

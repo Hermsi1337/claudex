@@ -54,7 +54,21 @@ codex login status
 
 ## Step 4 — Check project trust (target directory)
 
-Codex' `--sandbox workspace-write` only actually permits writes when the target project (the optional directory argument, or the current working directory) is in the user's trust list at `~/.codex/config.toml` (`[projects.'<path>'] trust_level = "trusted"` or the platform-equivalent form). Without it, every patch is rejected with `patch rejected: writing is blocked by read-only sandbox`, and `/claudex` ends up forced onto the `--dangerously-bypass-approvals-and-sandbox` runtime fallback — correct, but with sandboxing fully off. Setting the trust entry once removes the need.
+On macOS/Linux, Codex' `--sandbox workspace-write` only actually permits writes when the target project (the optional directory argument, or the current working directory) is in the user's trust list at `~/.codex/config.toml` (`[projects."<path>"] trust_level = "trusted"`). Without it, every patch is rejected with `patch rejected: writing is blocked by read-only sandbox`, and `/claudex` ends up forced onto the `--dangerously-bypass-approvals-and-sandbox` runtime fallback — correct, but with sandboxing fully off. Setting the trust entry once removes the need.
+
+**On native Windows this whole step is moot.** With Codex CLI 0.128, `--sandbox workspace-write` degrades to read-only unconditionally (the session header reports `sandbox: read-only`) — trust-list entries do **not** enable writes, in any TOML path form. `/claudex` therefore runs every write-capable Codex call with `--dangerously-bypass-approvals-and-sandbox` on Windows as the expected steady state. This applies regardless of the directory argument — a trust entry is dead config for every repo on Windows.
+
+### 4.0 Platform gate
+
+```bash
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*) echo "PLATFORM=windows" ;;
+  *) echo "PLATFORM=unix" ;;
+esac
+```
+
+- **`PLATFORM=windows`** → skip 4.1 and 4.2 entirely (do not offer to add a trust entry — it has no effect, no matter which directory was targeted). Go to Step 5 and report the Windows steady state there.
+- **`PLATFORM=unix`** → continue with 4.1.
 
 ### 4.1 Detect & check (single Bash call)
 
@@ -65,25 +79,14 @@ Run the entire detection + grep in **one** Bash invocation so the shell variable
 cd "<target-dir>" || { echo "TRUST_RESULT=unknown reason=target_dir_missing"; exit 0; }
 
 config_path="${CODEX_HOME:-$HOME/.codex}/config.toml"
-
-case "$(uname -s 2>/dev/null)" in
-  MINGW*|MSYS*|CYGWIN*)
-    # Windows native: lowercase backslash form, e.g. d:\develop\foo\bar
-    project_path="$(cygpath -w "$(pwd)" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
-    quote="'"  # TOML literal string — backslashes preserved as-is
-    ;;
-  *)
-    project_path="$(pwd)"
-    quote='"'  # TOML basic string — forward-slash paths need no escaping
-    ;;
-esac
+project_path="$(pwd)"
 
 if [ -z "$project_path" ]; then
   echo "TRUST_RESULT=unknown reason=path_detection_failed"
   exit 0
 fi
 
-needle="[projects.${quote}${project_path}${quote}]"
+needle="[projects.\"${project_path}\"]"
 
 if grep -Fq "$needle" "$config_path" 2>/dev/null; then
   status=trusted
@@ -92,10 +95,9 @@ else
 fi
 
 # Structured trailer for the orchestrator to parse — one key=value per line so the path
-# (which may contain spaces or backslashes) survives unmolested.
+# (which may contain spaces) survives unmolested.
 printf 'TRUST_RESULT=%s\n' "$status"
 printf 'config_path=%s\n' "$config_path"
-printf 'quote=%s\n' "$quote"
 printf 'project_path=%s\n' "$project_path"
 ```
 
@@ -103,7 +105,7 @@ Parse the trailing `TRUST_RESULT=...` line:
 
 - **`TRUST_RESULT=trusted`** → already in the list. Continue to Step 5.
 - **`TRUST_RESULT=untrusted`** → continue with 4.2.
-- **`TRUST_RESULT=unknown`** → on Windows, this means `cygpath` is missing (rare). Skip the auto-add path; mention in Step 5's summary that you couldn't determine trust state and that the user can add the project manually via `codex` interactive mode.
+- **`TRUST_RESULT=unknown`** → skip the auto-add path; mention in Step 5's summary that you couldn't determine trust state and that the user can add the project manually via `codex` interactive mode.
 
 ### 4.2 Ask the user, then (if approved) append
 
@@ -116,26 +118,16 @@ When the result is `untrusted`, ask exactly once with `AskUserQuestion`:
 
 If the user picks **skip**, note in the Step 5 summary that the project is untrusted and `/claudex` will rely on the bypass-flag fallback until they add it. Stop the trust flow.
 
-If the user picks **add**, append the entry in **one** Bash call. Re-derive `config_path`, `project_path`, and `quote` inside this call (do not trust the previous shell's variables — they are gone). The block also re-checks that no entry exists, so a second `/claudex:setup` run after the first one took effect is safe and idempotent:
+If the user picks **add**, append the entry in **one** Bash call. Re-derive `config_path` and `project_path` inside this call (do not trust the previous shell's variables — they are gone). The block also re-checks that no entry exists, so a second `/claudex:setup` run after the first one took effect is safe and idempotent:
 
 ```bash
 # Same rule as 4.1: substitute the directory argument if one was given; otherwise drop the cd line.
 cd "<target-dir>" || { echo "TARGET_DIR_MISSING — no change written"; exit 0; }
 
 config_path="${CODEX_HOME:-$HOME/.codex}/config.toml"
+project_path="$(pwd)"
 
-case "$(uname -s 2>/dev/null)" in
-  MINGW*|MSYS*|CYGWIN*)
-    project_path="$(cygpath -w "$(pwd)" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
-    quote="'"
-    ;;
-  *)
-    project_path="$(pwd)"
-    quote='"'
-    ;;
-esac
-
-needle="[projects.${quote}${project_path}${quote}]"
+needle="[projects.\"${project_path}\"]"
 
 mkdir -p "$(dirname "$config_path")"
 touch "$config_path"
@@ -164,11 +156,13 @@ Report a single short status block:
 ```
 codex CLI:        <version or "not installed">
 auth:             <logged in as <account> | not logged in | unknown>
-project trusted:  <yes | no — using --dangerously-bypass-approvals-and-sandbox fallback | unknown>
+project trusted:  <yes | no — using --dangerously-bypass-approvals-and-sandbox fallback | n/a on native Windows — sandbox unavailable, /claudex always uses --dangerously-bypass-approvals-and-sandbox | unknown>
 ready for /claudex: <yes/no>
 ```
 
 When a directory argument was given, name it on the `project trusted:` line so it's unambiguous which repo was checked.
+
+On native Windows, spell the situation out in one extra sentence below the block: Codex' sandbox is unavailable there (workspace-write degrades to read-only regardless of trust entries), so every write-capable `/claudex` Codex call runs with `--dangerously-bypass-approvals-and-sandbox`. The user should know this is by necessity, not an accident.
 
 If `ready` is `no`, list the remaining step(s) the user needs to do.
 
@@ -176,4 +170,4 @@ If `ready` is `no`, list the remaining step(s) the user needs to do.
 
 - `/claudex` uses the local Codex CLI's existing auth — there is no separate API key configuration in this plugin.
 - If `codex login status` is not a recognised subcommand on the user's installed version, fall back to running `codex --help` and inspecting the output for the right subcommand. Report what you found.
-- `cygpath` ships with Git Bash / MSYS2; if it's missing on a Windows install, fall back to `pwd` for the trust-check path and warn the user that the auto-format may not match what Codex stores. Manual trust setup via `codex` interactive mode in the project directory remains an option.
+- The Windows-is-moot rule reflects observed behaviour of Codex CLI 0.128 on native Windows: repo-root trust entries, exact `--cd` subdir entries, lowercased-backslash and exact-case TOML forms were all tested and none enabled workspace-write. If a future Codex version fixes sandboxing on Windows, re-enable the trust flow for it.
