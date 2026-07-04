@@ -23,6 +23,7 @@ Trivial mechanical edits (rename a symbol with a known target, version bump, mis
 
 - OpenAI Codex CLI: `npm install -g @openai/codex`, then `codex login`.
 - Claude Code on macOS, Linux, or Windows (Git Bash is supported directly; WSL works too).
-- The current project should be in your Codex trust list (`~/.codex/config.toml` → `[projects.'<path>'] trust_level = "trusted"`). `/claudex:setup` checks for this and offers to add it. Without trust, `/claudex` falls back at runtime to `--dangerously-bypass-approvals-and-sandbox` for the affected call — works, but defeats the sandbox until you trust the project properly.
+- On macOS/Linux, the current project should be in your Codex trust list (`~/.codex/config.toml` → `[projects."<path>"] trust_level = "trusted"`). `/claudex:setup` checks for this and offers to add it. Without trust, `/claudex` falls back at runtime to `--dangerously-bypass-approvals-and-sandbox` for the affected call — works, but defeats the sandbox until you trust the project properly.
+- On native Windows, Codex' sandbox is unavailable (Codex CLI 0.128: `workspace-write` degrades to read-only regardless of trust entries), so `/claudex` runs every write-capable Codex call with `--dangerously-bypass-approvals-and-sandbox` from the start and says so in each report. `/claudex:setup` skips the trust flow there.
 
 The plugin uses your local Codex auth via subprocess — no API keys configured in the plugin.
