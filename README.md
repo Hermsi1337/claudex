@@ -63,6 +63,16 @@ Claude splits this into subtasks, identifies file overlaps, and runs them with t
 
 Then Claude reviews everything Codex produced and reports back.
 
+### Multi-repo case
+
+```
+/claudex bump the healthcheck timeout to 10s in D:/repos/service-a, D:/repos/service-b and D:/repos/service-c
+```
+
+Each repo becomes its own Codex subtask, invoked with `--cd <repo>` — which works for any absolute path, so the repos don't have to live under the directory you started Claude Code in. Different repos never share files, so the per-repo jobs run in parallel. Claude never edits foreign repos itself, and the trivial-edit shortcut is disabled for multi-repo tasks — repeated mechanical edits across repos always go to Codex. Context in a foreign repo is gathered via a read-only research run instead of Claude reading the repo, and review happens per repo (`git -C <repo> diff`).
+
+Each target repo needs its own entry in your Codex trust list: run `/claudex:setup <repo-path>` once per repo, or accept the per-repo sandbox-bypass fallback (with a notice naming the repo) until you do.
+
 ### Override the model
 
 ```
@@ -103,6 +113,7 @@ Questions about the diff or the codebase don't trigger a Codex run; only sentenc
 | Refactoring | Codex |
 | Writing tests | Codex |
 | Mechanical edits across many files | Codex |
+| The same change repeated across multiple repos | Codex (one call per repo, in parallel) |
 | Broad codebase research (map a subsystem, find all implementations of a pattern, trace data flow) | Codex (read-only) |
 | Trivial single-edit changes (rename with known target, version bump, missing import, typo fix) | Claude |
 | Quick lookups (a targeted grep or two, reading ≤2 known files) | Claude |
@@ -110,7 +121,7 @@ Questions about the diff or the codebase don't trigger a Codex run; only sentenc
 | Commit messages, PR descriptions | Claude |
 | Architectural decisions | Claude |
 
-A code subtask is treated as "trivial" only if the change is fully specified, fits in ≤2 files, needs no test/build loop, and Claude wouldn't have to read more than ~2 files to write the diff. When in doubt → Codex.
+A code subtask is treated as "trivial" only if the change is fully specified, fits in ≤2 files, needs no test/build loop, and Claude wouldn't have to read more than ~2 files to write the diff. When in doubt → Codex. The trivial shortcut is **off** entirely for tasks spanning more than one repo — N small edits across N repos are Codex work, one `--cd <repo>` call each.
 
 ## Inline-comment policy
 
@@ -136,7 +147,7 @@ Read-only research needs no project-trust entry, never uses the sandbox bypass, 
 
 `/claudex` always invokes `codex exec --sandbox workspace-write`, but Codex only honours `workspace-write` when the project is in your trust list at `~/.codex/config.toml` (a `[projects.'<path>'] trust_level = "trusted"` entry, or the platform-equivalent form). When it isn't, Codex rejects every patch with `patch rejected: writing is blocked by read-only sandbox`. The runtime `-c projects.X.trust_level=...` override has been observed not to work reliably on Windows, so the plugin handles this in two places instead:
 
-- **`/claudex:setup`** detects whether the current project is in the trust list and offers to add it (with explicit consent — your config file is not modified silently). Once trusted, `/claudex` runs at full sandbox without any bypass flag.
+- **`/claudex:setup [dir]`** detects whether the target project (the optional directory argument, or the current one) is in the trust list and offers to add it (with explicit consent — your config file is not modified silently). Once trusted, `/claudex` runs at full sandbox without any bypass flag. Trust is per repo — before a multi-repo task, run it once per target repo.
 - **At runtime**, if a `codex exec` call returns the exact `patch rejected: writing is blocked by read-only sandbox` error, `/claudex` retries that call once with `--dangerously-bypass-approvals-and-sandbox` and surfaces a notice in the final report. The retry only fires on that specific error string — other failures are surfaced as-is. The bypass flag is documented on `codex exec --help` for Codex CLI ≥ 0.128 and is the current replacement for the old `--full-auto` preset (which never existed on `codex exec`).
 
 ## Reasoning effort
@@ -165,7 +176,7 @@ If Claude misjudges disjointness and two parallel jobs touch the same file, the 
 - `/claudex <task>` — orchestrate + delegate + review.
   - `--model <name>` — override Codex' default model for this call.
   - `--effort <low|medium|high|xhigh>` — force a Codex reasoning level for this call (bypasses auto-classification).
-- `/claudex:setup` — verify Codex CLI is installed and authenticated.
+- `/claudex:setup [dir]` — verify Codex CLI is installed and authenticated; with `[dir]`, check/trust that directory instead of the current one (useful before multi-repo tasks).
 
 ## Not in this version
 
