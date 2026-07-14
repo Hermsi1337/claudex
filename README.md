@@ -130,7 +130,7 @@ Codex follows whatever it finds in your `CLAUDE.md` / `AGENTS.md` / `.codex/conf
 
 ## Output verbosity
 
-Every `codex exec` call is launched with `-c model_verbosity=low`, and the prompt that Claude sends explicitly tells Codex to skip preamble/recap and to summarise the result in at most 5 short bullets. This is on for every call and overrides whatever `model_verbosity` is in your `~/.codex/config.toml` for the duration of the call. The reason is workflow-specific: Claude reviews each Codex run via `git diff`, so verbose Codex prose is pure token waste — the diff is the source of truth, not Codex' narration. There is no flag to opt out yet; if you actually need verbose Codex output, file an issue.
+Every `codex exec` call is launched with `-c model_verbosity=low`, and the prompt that Claude sends explicitly tells Codex to skip preamble/recap, to summarise the result in at most 5 short bullets, and to state explicitly when an acceptance criterion is unmet or the approach deviated — a partial result must never be presented as done. This is on for every call and overrides whatever `model_verbosity` is in your `~/.codex/config.toml` for the duration of the call. The reason is workflow-specific: Claude reviews each Codex run via `git diff`, so verbose Codex prose is pure token waste — the diff is the source of truth, not Codex' narration. There is no flag to opt out yet; if you actually need verbose Codex output, file an issue.
 
 ## Execution discipline
 
@@ -140,9 +140,14 @@ The prompt template also forbids Codex from running steps the orchestrator handl
 
 Broad codebase exploration — mapping how a subsystem works, finding every implementation of a pattern, tracing data flow — is delegated to Codex as a **read-only research run** (`codex exec --sandbox read-only`). Claude never spawns its own subagents in claudex mode: they run on Claude tokens, which is exactly the cost this plugin exists to avoid. Quick lookups (a targeted grep or two) Claude does inline; everything broader goes to Codex.
 
-Research runs get a curated prompt so Codex doesn't explore cold: what the answer will be used for, a compact repo-structure snapshot with explicit ignore-scopes, seed `path:line` candidates from a quick grep Claude runs first, a strict findings format (`path:line — one-line answer` plus an "Open questions" section), and — on follow-up research in the same task — the condensed findings of earlier runs. Claude spot-checks cited locations before embedding findings into implementation prompts.
+Research runs come in two forms, and the prompt is shaped accordingly:
 
-Read-only research needs no project-trust entry, never uses the sandbox bypass, and always runs at your configured default reasoning effort (`--effort` still overrides).
+- **Enumeration** — closed questions ("find every X", "list all callers of Y"). Claude runs one quick grep first and passes the hits as seed `path:line` candidates, explicitly framed as an incomplete list: Codex' job is to verify and extend it, including naming variants and indirection the grep would miss.
+- **Investigation** — open questions ("how does X work", "why does Y happen", "where does this value actually come from"). These get **no seeds and no hypothesis**: Claude states the question neutrally and lets Codex work out its own answer — pre-chewed leads would anchor Codex on Claude's guess and turn research into rubber-stamping. If Claude merely wants a suspicion confirmed, that's not a research run at all; it verifies inline instead.
+
+Questions that mix both forms are split into one research run per form, chained when one part feeds the other. Both forms share the rest of the prompt: what the answer will be used for, a compact repo-structure snapshot with explicit ignore-scopes, and a strict findings format — `path:line — one-line answer`, an "Open questions" section, plus a mandatory "Contradicts expectations" section so findings that disprove the question's premise get reported instead of reconciled away. On follow-up research in the same task, earlier findings are passed along labelled as unverified — to build on *and* to challenge. Claude spot-checks cited locations before embedding findings into implementation prompts.
+
+Read-only research needs no project-trust entry and never uses the sandbox bypass. Enumeration always runs at your configured default reasoning effort; an investigation that needs cross-module causal reasoning may be escalated to `high` like any complex subtask (`--effort` still overrides everything).
 
 ## Sandbox & trust
 
