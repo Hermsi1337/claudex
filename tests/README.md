@@ -17,7 +17,14 @@ tests/
 │   ├── 05-sticky-followup.md
 │   ├── 06-reasoning-escalation.md
 │   ├── 07-effort-flag.md
-│   └── 08-prompt-via-stdin.md
+│   ├── 08-prompt-via-stdin.md
+│   ├── 09-low-verbosity-default.md
+│   ├── 10-windows-prompt-path.md
+│   ├── 11-sandbox-bypass-fallback.md
+│   ├── 12-research-delegation.md
+│   ├── 13-multi-repo.md
+│   ├── 14-windows-sandbox-bypass.md
+│   └── 15-research-investigation.md
 └── sandboxes/          # gitignored work dirs (only .gitignore is committed)
 ```
 

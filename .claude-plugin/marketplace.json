@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Claude Code plugin to delegate implementation tasks to OpenAI Codex.",
-    "version": "0.1.0"
+    "version": "0.1.2"
   },
   "plugins": [
     {
       "name": "claudex",
       "description": "Orchestrate implementation work via OpenAI Codex from inside Claude Code: Claude decomposes the task, delegates code and research subtasks to Codex, handles docs itself, and reviews the resulting diff.",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "author": {
         "name": "Hermsi1337"
       },

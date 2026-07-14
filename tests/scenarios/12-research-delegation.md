@@ -5,7 +5,7 @@
 Verify the research-subtask path end to end:
 
 1. **Routing.** A task whose first half requires broad codebase exploration produces a dedicated research subtask that runs as `codex exec --sandbox read-only …` — and the orchestrator **never** uses the Agent tool (no Explore / general-purpose / Plan subagents), neither for the research nor for anything else in the call.
-2. **Prompt content.** The research prompt file under `/tmp/claudex-prompts/<call_id>/` contains the five mandatory blocks: mission context (what the findings feed), repo orientation with negative scope, seed `path:line` findings from an orchestrator-side grep, an output contract (`path:line — one-line answer`, "Open questions" section, length cap, "your output is the deliverable"), and — only on chained research — an already-known block.
+2. **Prompt content.** The research question here ("which modules register which event names, through what mechanism") is a closed list question — the orchestrator must classify it as **enumeration** form. The research prompt file under `/tmp/claudex-prompts/<call_id>/` contains the shared blocks — mission context (what the findings feed, question stated neutrally), repo orientation with negative scope, an output contract (`path:line — one-line answer`, "Open questions" section, "Contradicts expectations" section, length cap, "your output is the deliverable"), and — only on chained research — an already-known block — plus the enumeration-specific block: seed `path:line` findings from an orchestrator-side grep, framed as an incomplete list to verify and extend.
 3. **Sequencing.** The research call completes **before** the implementation subtask launches, and its findings are embedded in the implementation prompt.
 4. **No bypass, ever.** The research call is never retried with `--dangerously-bypass-approvals-and-sandbox`, and it works without a project-trust entry.
 
@@ -53,13 +53,13 @@ done
   codex exec --sandbox read-only --cd tests/sandboxes/12-research -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.md
   ```
   - `--sandbox read-only`, not `workspace-write`.
-  - No `-c model_reasoning_effort=…` (research is always `standard`; only an explicit `--effort` would add it).
+  - No `-c model_reasoning_effort=…` (enumeration research is always `standard`; only an explicit `--effort` — or a `complex`-tagged *investigation* subtask, which this is not — would add it).
   - No `--dangerously-bypass-approvals-and-sandbox`, and no retry with it — even if the project is not in the Codex trust list (read-only doesn't need trust; that's part of what this scenario proves).
 - The research **prompt file** contains, in substance (wording is up to the orchestrator):
-  - mission context: the registration question *and* that the findings feed a manifest/test implementation;
+  - mission context: the registration question *and* that the findings feed a manifest/test implementation — stated neutrally, no pre-supplied answer;
   - repo orientation: the sandbox layout (`core.py`, `handlers/…`) and/or explicit scope limits;
-  - seed findings: `path:line` hits from a grep the orchestrator ran itself (e.g. for `register(`) — paths and line numbers, not pasted file contents;
-  - output contract: `path:line — one-line answer` format, an "Open questions" section, a length cap, and "your final message is the deliverable / no narration";
+  - seed findings (enumeration form): `path:line` hits from a grep the orchestrator ran itself (e.g. for `register(`) — paths and line numbers, not pasted file contents, framed as an incomplete list to verify and extend;
+  - output contract: `path:line — one-line answer` format, an "Open questions" section, a "Contradicts expectations" section, a length cap, and "your final message is the deliverable / no narration";
   - **not** the implementation must-include rules (no "stop after applying changes", no formatter/test rules — those make no sense read-only).
 - The research job finishes before the implementation `codex exec` (with `--sandbox workspace-write`) launches, and the implementation prompt embeds the research findings (the event-name list and/or the registration mechanism).
 - Before embedding, the orchestrator spot-checks at least one cited `path:line` with Read/Grep.
@@ -91,7 +91,7 @@ In the transcript, confirm: no Agent tool call; the research Bash call carries `
 - Orchestrator spawns a Claude subagent (Explore/general-purpose) for the exploration → hard regression; this is the exact behaviour the research path exists to replace.
 - Orchestrator reads all 11 sandbox files into its own context instead of delegating → the quick-lookup exception is over-firing; it is meant for "a grep or two / ≤2 known files", not for mapping a directory of modules.
 - Research call uses `--sandbox workspace-write` → wrong sandbox; it also drags the trust/bypass machinery into a job that must not have it.
-- Research call gets `-c model_reasoning_effort=high` without `--effort` → research auto-escalation is forbidden.
+- Research call gets `-c model_reasoning_effort=high` without `--effort` → enumeration research never auto-escalates (only a `complex`-tagged investigation subtask may, and this scenario's question is a plain enumeration).
 - Research call retried with `--dangerously-bypass-approvals-and-sandbox` → the bypass fallback is reserved for `workspace-write` subtasks; on read-only it must never fire.
 - Research prompt reuses the implementation must-include block ("stop after applying changes", formatter/test rules) → wrong template.
 - Implementation prompt contains no trace of the research findings → the research round-trip was wasted; sequencing or embedding is broken.

@@ -5,7 +5,7 @@
 Verify two things that together implement the always-on token-trimming default:
 
 1. **Flag side.** Every `codex exec` invocation the orchestrator issues includes `-c model_verbosity=low`. There is no flag to opt out and no per-subtask exception — the override must appear on every call, including sticky-mode follow-ups, complex subtasks, and the negative-check below.
-2. **Prompt side.** The prompt the orchestrator writes under `/tmp/claudex-prompts/<call_id>/` tells Codex explicitly: no preamble, no recap, summarise the result in at most 5 short bullets in the form `path/to/file: one-line change`, errors quoted verbatim, code blocks only when essential.
+2. **Prompt side.** The prompt the orchestrator writes under `/tmp/claudex-prompts/<call_id>/` tells Codex explicitly: no preamble, no recap, summarise the result in at most 5 short bullets in the form `path/to/file: one-line change`, errors quoted verbatim, unmet acceptance criteria or deviations flagged explicitly (a partial result is never presented as done), code blocks only when essential.
 
 If either half is missing, this is a regression.
 
@@ -31,7 +31,7 @@ mkdir -p tests/sandboxes/09-verbosity
   codex exec --sandbox workspace-write --cd tests/sandboxes/09-verbosity -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md
   ```
   (Combined with whatever other flags Phase 3 decided to add, e.g. `-c model_reasoning_effort=…` — but `model_verbosity=low` is unconditional.)
-- Open the prompt file under `/tmp/claudex-prompts/<call_id>/` that this run produced (the per-call subdirectory created when the call started). It must contain language that maps to the must-include #6 rule: an explicit "no preamble / no recap / no narration" instruction, a "summarise in at most 5 short bullets" instruction, and "quote errors verbatim". Exact wording is up to the orchestrator; the substance must be there.
+- Open the prompt file under `/tmp/claudex-prompts/<call_id>/` that this run produced (the per-call subdirectory created when the call started). It must contain language that maps to the must-include #6 rule: an explicit "no preamble / no recap / no narration" instruction, a "summarise in at most 5 short bullets" instruction, "quote errors verbatim", and an instruction to flag unmet acceptance criteria or deviations explicitly. Exact wording is up to the orchestrator; the substance must be there.
 - Codex' own final assistant message in the transcript should be short: no "Sure, I'd be happy to help" preamble, no recap of the task, a final summary of at most 5 bullets per file changed. Rule of thumb for this single-subtask task: ≤ 15 lines of Codex prose total.
 
 ## Invocation B — sticky follow-up
