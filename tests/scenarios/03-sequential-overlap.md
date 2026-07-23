@@ -24,13 +24,13 @@ PY
 ## Expected behaviour
 
 - **Phase 1:** split into 2 Codex subtasks. **Both touch `calc.py`** → file overlap → **must run sequentially**. Claude should explicitly call this out in its plan.
-- **Phase 3:** **two `codex exec [flags] - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md` Bash calls back-to-back, neither in background**, each preceded by its own Write-tool call to materialise the prompt file under the same per-call subdirectory (resolved once at the start of this `/claudex` call). The second Codex call starts only after the first finishes. **No** `run_in_background: true`. **No** inline-quoted prompts and **no** heredocs anywhere.
+- **Phase 3:** **two Codex jobs, strictly one after the other.** Each gets its own Write-tool prompt file under the same per-call subdirectory (resolved once at the start of this `/claudex` call), a background `codex exec [flags] - < <name>.md > <name>.out 2>&1; echo $? > <name>.exit` launch, and a sentinel watcher. Background launching is expected — it's how every Codex job runs — but the **second job's launch must happen only after the first job's `.exit` sentinel confirmed success**. **No** inline-quoted prompts and **no** heredocs anywhere.
 - **Phase 4:** review reads the final `calc.py`, confirms both new functions are present, the original `add` is intact, and divide raises `ZeroDivisionError` for `b == 0`.
-- **On native Windows:** both `codex exec` calls additionally carry `--dangerously-bypass-approvals-and-sandbox` from the start (the sandbox never permits writes there — see scenario 14), and the Phase 5 report includes the steady-state notice. On macOS/Linux the flag must **not** appear unless the runtime fallback of scenario 11 fired.
+- **All platforms:** `--dangerously-bypass-approvals-and-sandbox` must **not** appear unless the runtime fallback of scenario 11 fired — Codex ≥ 0.145 sandboxes native Windows too (see scenario 14).
 
 ## Failure mode to watch for
 
-If Claude launches both subtasks in parallel anyway, you'll see two background Bash calls in the transcript. The diff will likely show one function lost (last write wins) or merge-conflict markers. That's a **bug in the orchestrator's overlap analysis** — log it.
+If Claude launches both subtasks in parallel anyway, you'll see both `codex exec` launches in the same tool batch (or the second launched before the first's `.exit` sentinel existed). The diff will likely show one function lost (last write wins) or merge-conflict markers. That's a **bug in the orchestrator's overlap analysis** — log it.
 
 ## Verify
 

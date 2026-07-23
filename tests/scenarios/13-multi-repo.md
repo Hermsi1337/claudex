@@ -8,7 +8,7 @@ Verify the multi-repo path end to end:
 2. **Parallelism.** The two per-repo `codex exec` calls launch in parallel (`run_in_background: true` in one tool batch) — different repos are file-disjoint by definition.
 3. **Scope per repo.** Each prompt file carries a files-in-scope list covering only its own repo, with paths relative to that repo's root.
 4. **Review per repo.** Phase 4 runs `git -C <repo> status` / `git -C <repo> diff` for each repo (the sandbox repos are their own git repos — the claudex repo's git doesn't see into them), and the Phase 5 report groups entries per repo.
-5. **Trust per repo (macOS/Linux).** The freshly-created sandbox repos are (normally) not in the Codex trust list, so the bypass fallback may fire — once per affected repo, and each Phase 5 notice must name **which** repo it fired for and recommend `/claudex:setup <that-repo-path>`. On native Windows this expectation changes: both write-capable calls carry `--dangerously-bypass-approvals-and-sandbox` from the start with the steady-state notice instead (see scenario 14) — no rejection-then-retry pairs, no `/claudex:setup` recommendation.
+5. **Trust per repo (macOS/Linux).** The freshly-created sandbox repos are (normally) not in the Codex trust list, so the bypass fallback may fire — once per affected repo, and each Phase 5 notice must name **which** repo it fired for and recommend `/claudex:setup <that-repo-path>`. On native Windows with Codex ≥ 0.145 no bypass and no trust prep are expected at all — `codex exec` appends each repo's trust entry itself on first run (check `~/.codex/config.toml` afterwards and clean the test entries up). Newer Codex may auto-trust on macOS/Linux too, in which case the fallback simply never fires.
 
 ## Setup
 
@@ -43,8 +43,8 @@ Note the per-repo change is deliberately tiny (2 files, fully specified, no test
   codex exec --sandbox workspace-write --cd tests/sandboxes/13-multi-repo/repo-a -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<slug-a>-<id>.md
   codex exec --sandbox workspace-write --cd tests/sandboxes/13-multi-repo/repo-b -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<slug-b>-<id>.md
   ```
-- **macOS/Linux:** if Codex rejects writes (`patch rejected: writing is blocked by read-only sandbox` — likely, since the sandbox repos were just created and aren't trusted), the bypass retry fires **per affected repo**, and the Phase 5 **Notices** section names each repo individually and recommends `/claudex:setup tests/sandboxes/13-multi-repo/<repo>`.
-- **Native Windows:** both `codex exec` calls carry `--dangerously-bypass-approvals-and-sandbox` from the start (see scenario 14) and the Notices section states the steady state — it must **not** recommend `/claudex:setup` for either repo.
+- **macOS/Linux:** if Codex rejects writes (`patch rejected: writing is blocked by read-only sandbox` — possible when the sandbox repos aren't trusted and the installed Codex doesn't auto-trust), the bypass retry fires **per affected repo**, and the Phase 5 **Notices** section names each repo individually and recommends `/claudex:setup tests/sandboxes/13-multi-repo/<repo>`.
+- **Native Windows:** no bypass flag anywhere (Codex ≥ 0.145 sandboxes natively and manages trust itself — see scenario 14). If a rejection-then-retry pair shows up, the installed Codex predates the 0.145 fix and the notice must recommend updating Codex, not `/claudex:setup`.
 - Phase 4 reviews each repo through its own git: `git -C tests/sandboxes/13-multi-repo/repo-a diff` etc.
 - The Phase 5 report groups **Delegated to Codex** and **Review notes** per repo, entries prefixed with the repo path.
 
@@ -91,7 +91,7 @@ In the transcript, confirm: no Edit/Write tool call touching either sandbox repo
 - The two calls run sequentially without a stated reason → different repos are file-disjoint by definition; sequential here means the parallelism rule regressed.
 - A prompt's files-in-scope list names the other repo's files, or uses paths relative to the claudex repo instead of the `--cd` root → scope rule regression.
 - Bypass fallback fires but the notice doesn't say which repo, or fires once "for the task" instead of per call → per-repo trust reporting regressed (macOS/Linux).
-- On native Windows: a sandboxed first attempt followed by a rejection-then-retry pair → the platform detection didn't fire; see scenario 14.
+- On native Windows (Codex ≥ 0.145): any `--dangerously-bypass-approvals-and-sandbox` in the transcript → either the fallback fired for a real rejection (then the notice must recommend a Codex update) or the old preemptive-bypass behaviour regressed; see scenario 14.
 - Variant B: Claude edits the out-of-tree repo itself, claiming Codex can't reach it → `--cd` takes any absolute path; this is the exact failure mode the multi-repo rules exist to prevent.
 - Phase 4 runs only top-level `git status` and reports "no changes" → per-repo review (`git -C`) missing.
 
@@ -100,7 +100,7 @@ In the transcript, confirm: no Edit/Write tool call touching either sandbox repo
 ```bash
 rm -rf tests/sandboxes/13-multi-repo
 rm -rf "${TMPDIR:-/tmp}/claudex-scenario-13-repo-c" 2>/dev/null
-# If you accepted trust entries for the sandbox repos during the run, remove their
-# [projects.'…13-multi-repo…'] sections from ~/.codex/config.toml again.
+# Remove any [projects.'…13-multi-repo…'] sections from ~/.codex/config.toml —
+# whether you accepted them via /claudex:setup or Codex ≥ 0.145 auto-appended them.
 # Per-call subdirectories under /tmp/claudex-prompts/ are intentionally not cleaned.
 ```

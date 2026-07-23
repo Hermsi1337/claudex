@@ -23,10 +23,10 @@ mkdir -p tests/sandboxes/02-parallel
   - `store.py` → **Codex** (code)
   - `README.md` → **Claude** itself (doc)
   - Files are disjoint → eligible for parallel execution.
-- **Phase 3:** Claude first writes the Codex prompt to a `/tmp/claudex-prompts/<call_id>/<slug>-<id>.md` file via the Write tool (the `<call_id>` subdirectory is resolved once at the start of this `/claudex` call), then launches `codex exec [flags] - < <that-file>` with `run_in_background: true`, and **then** immediately uses `Write` / `Edit` on `README.md`. The Codex Bash call and the README work should be in flight at roughly the same time. After the Codex job finishes, Claude collects its exit code and stdout.
+- **Phase 3:** Claude first writes the Codex prompt to a `/tmp/claudex-prompts/<call_id>/<slug>-<id>.md` file via the Write tool (the `<call_id>` subdirectory is resolved once at the start of this `/claudex` call), then launches `codex exec [flags] - < <name>.md > <name>.out 2>&1; echo $? > <name>.exit` with `run_in_background: true` plus a sentinel watcher, and **then** immediately uses `Write` / `Edit` on `README.md`. The Codex Bash call and the README work should be in flight at roughly the same time. Once the watcher (or any wake-up) fires, Claude reads the exit code from `<name>.exit` and the summary from `<name>.out` — it does not idle waiting for the Codex job's own background-task notification.
 - **Phase 4:** review covers `store.py` only (Claude does not review its own README).
 - **Phase 5:** 1 delegated to Codex, 1 done by Claude.
-- **On native Windows:** the `codex exec` call additionally carries `--dangerously-bypass-approvals-and-sandbox` from the start (the sandbox never permits writes there — see scenario 14), and the Phase 5 report includes the steady-state notice. On macOS/Linux the flag must **not** appear unless the runtime fallback of scenario 11 fired.
+- **All platforms:** `--dangerously-bypass-approvals-and-sandbox` must **not** appear unless the runtime fallback of scenario 11 fired — Codex ≥ 0.145 sandboxes native Windows too (see scenario 14).
 
 ## Verify
 
