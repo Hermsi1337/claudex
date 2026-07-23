@@ -50,7 +50,7 @@ done
 - **No Agent tool calls anywhere in the transcript.** Any subagent spawn is a hard failure of this scenario.
 - The research invocation looks roughly like:
   ```bash
-  codex exec --sandbox read-only --cd tests/sandboxes/12-research -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.md
+  codex exec --sandbox read-only --cd tests/sandboxes/12-research -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.md > /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.out 2>&1; echo $? > /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.exit
   ```
   - `--sandbox read-only`, not `workspace-write`.
   - No `-c model_reasoning_effort=…` (enumeration research is always `standard`; only an explicit `--effort` — or a `complex`-tagged *investigation* subtask, which this is not — would add it).

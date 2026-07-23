@@ -2,7 +2,7 @@
 
 ## Goal
 
-Verify that the orchestrator delivers Codex prompts via a file + stdin redirect (`codex exec [flags] - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md`), **not** as an inline-quoted positional argument and **not** through a heredoc. The prompt content for this scenario is deliberately full of shell metacharacters that would have broken inline quoting.
+Verify that the orchestrator delivers Codex prompts via a file + stdin redirect (`codex exec [flags] - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md`, plus the `.out`/`.exit` sentinel redirects), **not** as an inline-quoted positional argument and **not** through a heredoc. The prompt content for this scenario is deliberately full of shell metacharacters that would have broken inline quoting.
 
 ## Setup
 
@@ -25,9 +25,9 @@ The task description below contains backticks, `$VAR`-looking tokens, embedded d
   - Before invoking Codex, Claude resolves a per-call subdirectory under `/tmp/claudex-prompts/` (`<call_id>` = timestamp + 6 hex chars) and calls the **Write** tool to create a file inside it, e.g. `/tmp/claudex-prompts/<call_id>/notes-and-scan-<id>.md`. The Write tool is what materialises the prompt — **not** a `cat <<EOF` heredoc inside Bash.
   - The actual `codex exec` Bash call has the form:
     ```bash
-    codex exec --sandbox workspace-write --cd tests/sandboxes/08-stdin - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md
+    codex exec --sandbox workspace-write --cd tests/sandboxes/08-stdin - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md > /tmp/claudex-prompts/<call_id>/<slug>-<id>.out 2>&1; echo $? > /tmp/claudex-prompts/<call_id>/<slug>-<id>.exit
     ```
-    `-` (read prompt from stdin) and `< <file>` (feed stdin from the prompt file) are both required. No part of the natural-language prompt may appear as a positional argument or inside a heredoc.
+    `-` (read prompt from stdin) and `< <file>` (feed stdin from the prompt file) are both required, as are the `.out`/`.exit` sentinel redirects (scenario 16 covers those in depth). No part of the natural-language prompt may appear as a positional argument or inside a heredoc.
 - **Phase 4 — review:** confirms `notes.md` contains exactly the three lines specified, with backticks, `$HOME` (literal, unexpanded), and the mixed-quote sentence intact. Confirms `scan.py` defines `find_eof` correctly.
 
 ## Failure mode to watch for

@@ -65,7 +65,7 @@ EOF
 - **No Agent tool calls anywhere in the transcript.**
 - The research invocation looks roughly like:
   ```bash
-  codex exec --sandbox read-only --cd tests/sandboxes/15-research-investigation -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.md
+  codex exec --sandbox read-only --cd tests/sandboxes/15-research-investigation -c model_verbosity=low - < /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.md > /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.out 2>&1; echo $? > /tmp/claudex-prompts/<call_id>/<research-slug>-<id>.exit
   ```
   - `--sandbox read-only`, never `workspace-write`, never `--dangerously-bypass-approvals-and-sandbox`.
   - `--cd` is legitimate here because the **task itself** confines the scope to the sandbox dir — not because the orchestrator guessed where the answer lives.

@@ -23,8 +23,9 @@ tests/
 │   ├── 11-sandbox-bypass-fallback.md
 │   ├── 12-research-delegation.md
 │   ├── 13-multi-repo.md
-│   ├── 14-windows-sandbox-bypass.md
-│   └── 15-research-investigation.md
+│   ├── 14-windows-native-sandbox.md
+│   ├── 15-research-investigation.md
+│   └── 16-completion-sentinel.md
 └── sandboxes/          # gitignored work dirs (only .gitignore is committed)
 ```
 
@@ -70,7 +71,7 @@ In Phase 4 (review), watch what the orchestrator notices:
 
 If the orchestrator silently skips a phase, that's a bug in `plugins/claudex/commands/claudex.md`, not a Codex problem.
 
-In Phase 3, every Codex call should look like `codex exec [flags] - < /tmp/claudex-prompts/<call_id>/<slug>-<id>.md`. If you ever see the prompt inlined as a positional argument or wrapped in a heredoc, that's a regression — the orchestrator must always go through the prompt-file path. Each `/claudex` call resolves its own per-call subdirectory (timestamped + 6-hex `call_id`) so concurrent sessions don't share prompt files.
+In Phase 3, every Codex call should look like `codex exec [flags] - < <call-dir>/<slug>-<id>.md > <call-dir>/<slug>-<id>.out 2>&1; echo $? > <call-dir>/<slug>-<id>.exit`, launched with `run_in_background: true` and followed by a sentinel watcher (an `until`-loop background call that exits when the batch's `.exit` files exist). If you ever see the prompt inlined as a positional argument, wrapped in a heredoc, missing the `.out`/`.exit` redirects, or the orchestrator idling in wait for a background-task notification instead of arming a watcher, that's a regression. Each `/claudex` call resolves its own per-call subdirectory (timestamped + 6-hex `call_id`) so concurrent sessions don't share prompt files. Some scenario snippets show the call without the redirect suffix for readability — the suffix is mandatory in real transcripts regardless.
 
 ## Adding a new scenario
 

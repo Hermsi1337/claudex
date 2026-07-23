@@ -38,7 +38,7 @@ mkdir -p tests/sandboxes/10-winpath
   - Windows: `Write` to `C:/Users/<user>/AppData/Local/Temp/claudex-prompts/<call_id>/winpath-<id>.md`
   - Mac/Linux: `Write` to `/tmp/claudex-prompts/<call_id>/winpath-<id>.md`
 - The Bash `codex exec` call uses **the same resolved path** in the `<` redirect, not a hard-coded `/tmp/claudex-prompts/...`. (Either the resolved absolute path, or `/tmp/claudex-prompts/<call_id>/<file>.md` since Bash's mapping resolves to the same physical file — but on Windows specifically the Write tool needs the resolved path.)
-- On native Windows, the `codex exec` call carries `--dangerously-bypass-approvals-and-sandbox` from the start (the sandbox never permits writes there — see scenario 14) and the Phase 5 report includes the steady-state notice.
+- The `codex exec` call runs plain `--sandbox workspace-write` — no `--dangerously-bypass-approvals-and-sandbox` on any platform (Codex ≥ 0.145 sandboxes native Windows too; see scenario 14) — and carries the `.out`/`.exit` sentinel redirects under the same resolved path.
 - The Codex call succeeds and `note.txt` is created with the requested content.
 
 ## Verify

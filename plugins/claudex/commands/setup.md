@@ -56,7 +56,7 @@ codex login status
 
 On macOS/Linux, Codex' `--sandbox workspace-write` only actually permits writes when the target project (the optional directory argument, or the current working directory) is in the user's trust list at `~/.codex/config.toml` (`[projects."<path>"] trust_level = "trusted"`). Without it, every patch is rejected with `patch rejected: writing is blocked by read-only sandbox`, and `/claudex` ends up forced onto the `--dangerously-bypass-approvals-and-sandbox` runtime fallback — correct, but with sandboxing fully off. Setting the trust entry once removes the need.
 
-**On native Windows this whole step is moot.** With Codex CLI 0.128, `--sandbox workspace-write` degrades to read-only unconditionally (the session header reports `sandbox: read-only`) — trust-list entries do **not** enable writes, in any TOML path form. `/claudex` therefore runs every write-capable Codex call with `--dangerously-bypass-approvals-and-sandbox` on Windows as the expected steady state. This applies regardless of the directory argument — a trust entry is dead config for every repo on Windows.
+**On native Windows the manual trust flow is unnecessary — what matters is the Codex version.** With Codex ≥ 0.145 (verified on 0.145.0), `--sandbox workspace-write` works natively on Windows and `codex exec` appends the workdir's trust entry to `~/.codex/config.toml` by itself on first run, so there is nothing to pre-add here. With **older** Codex CLIs (degradation confirmed through 0.128), `workspace-write` degrades to read-only unconditionally on Windows — trust entries do not help in any TOML path form — and every write-capable `/claudex` call ends up on the `--dangerously-bypass-approvals-and-sandbox` runtime fallback. The fix for that is updating Codex, and Step 4's Windows branch below checks exactly this.
 
 ### 4.0 Platform gate
 
@@ -67,7 +67,24 @@ case "$(uname -s 2>/dev/null)" in
 esac
 ```
 
-- **`PLATFORM=windows`** → skip 4.1 and 4.2 entirely (do not offer to add a trust entry — it has no effect, no matter which directory was targeted). Go to Step 5 and report the Windows steady state there.
+- **`PLATFORM=windows`** → skip 4.1 and 4.2 (with Codex ≥ 0.145, `codex exec` manages the trust entry itself on first run — there is nothing to pre-add, no matter which directory was targeted). Instead, check the installed version against the 0.145 Windows sandbox fix:
+
+  ```bash
+  ver="$(codex --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ -z "$ver" ]; then
+    echo "WIN_SANDBOX=unknown"
+  elif [ "$(printf '%s\n' 0.145.0 "$ver" | sort -V | head -1)" = "0.145.0" ]; then
+    echo "WIN_SANDBOX=ok version=$ver"
+  else
+    echo "WIN_SANDBOX=outdated version=$ver"
+  fi
+  ```
+
+  - `WIN_SANDBOX=ok` → the sandbox works natively on this Windows install; report that in Step 5.
+  - `WIN_SANDBOX=outdated` → warn the user: on this Codex version, `workspace-write` degrades to read-only on native Windows and every write-capable `/claudex` call will fall back to `--dangerously-bypass-approvals-and-sandbox` (with a notice per call). Recommend updating: `npm install -g @openai/codex`.
+  - `WIN_SANDBOX=unknown` → say the version couldn't be parsed and that `/claudex` will surface a fallback notice if the sandbox turns out to be degraded.
+
+  Then go to Step 5.
 - **`PLATFORM=unix`** → continue with 4.1.
 
 ### 4.1 Detect & check (single Bash call)
@@ -156,13 +173,13 @@ Report a single short status block:
 ```
 codex CLI:        <version or "not installed">
 auth:             <logged in as <account> | not logged in | unknown>
-project trusted:  <yes | no — using --dangerously-bypass-approvals-and-sandbox fallback | n/a on native Windows — sandbox unavailable, /claudex always uses --dangerously-bypass-approvals-and-sandbox | unknown>
+project trusted:  <yes | no — using --dangerously-bypass-approvals-and-sandbox fallback | auto-managed by codex exec (native Windows, Codex ≥ 0.145) | outdated Codex on native Windows — bypass fallback until updated | unknown>
 ready for /claudex: <yes/no>
 ```
 
 When a directory argument was given, name it on the `project trusted:` line so it's unambiguous which repo was checked.
 
-On native Windows, spell the situation out in one extra sentence below the block: Codex' sandbox is unavailable there (workspace-write degrades to read-only regardless of trust entries), so every write-capable `/claudex` Codex call runs with `--dangerously-bypass-approvals-and-sandbox`. The user should know this is by necessity, not an accident.
+On native Windows, spell the situation out in one extra sentence below the block. With Codex ≥ 0.145: the sandbox works natively and `codex exec` manages trust entries itself — no action needed. With an older Codex: `workspace-write` degrades to read-only there, every write-capable `/claudex` call will fall back to `--dangerously-bypass-approvals-and-sandbox` with a per-call notice, and updating Codex (`npm install -g @openai/codex`) is the fix.
 
 If `ready` is `no`, list the remaining step(s) the user needs to do.
 
@@ -170,4 +187,5 @@ If `ready` is `no`, list the remaining step(s) the user needs to do.
 
 - `/claudex` uses the local Codex CLI's existing auth — there is no separate API key configuration in this plugin.
 - If `codex login status` is not a recognised subcommand on the user's installed version, fall back to running `codex --help` and inspecting the output for the right subcommand. Report what you found.
-- The Windows-is-moot rule reflects observed behaviour of Codex CLI 0.128 on native Windows: repo-root trust entries, exact `--cd` subdir entries, lowercased-backslash and exact-case TOML forms were all tested and none enabled workspace-write. If a future Codex version fixes sandboxing on Windows, re-enable the trust flow for it.
+- The Windows version gate reflects observed behaviour: on Codex CLI 0.128, native-Windows `workspace-write` degraded to read-only regardless of trust entries (repo-root, exact `--cd` subdir, lowercased-backslash and exact-case TOML forms all tested, none effective); on Codex CLI 0.145.0 the sandbox works natively and `codex exec` was observed to append the workdir's trust entry itself. The manual trust flow therefore stays unix-only — on Windows it is either unnecessary (≥ 0.145) or ineffective (older).
+- Codex ≥ 0.145 may append trust entries automatically on other platforms too. That's fine — 4.1 will simply find the project already trusted and the untrusted case never fires.
